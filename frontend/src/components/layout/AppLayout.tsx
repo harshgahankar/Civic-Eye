@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import Toaster from '../common/Toaster';
 
 export default function AppLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -23,6 +24,7 @@ export default function AppLayout() {
           </div>
         </main>
       </div>
+      <Toaster />
     </div>
   );
 }

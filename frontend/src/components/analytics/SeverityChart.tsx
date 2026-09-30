@@ -5,17 +5,23 @@ const SEGS = [
   { k: 'LOW', v: 35, c: 'bg-surface-container-high' },
 ];
 
-export function SeverityChart() {
+export interface SeveritySeg {
+  k: string;
+  v: number;
+  c: string;
+}
+
+export function SeverityChart({ segs = SEGS }: { segs?: SeveritySeg[] }) {
   return (
     <section className="bg-surface-container-lowest border border-outline-variant rounded-sm p-space-md">
       <p className="font-label-caps text-on-surface-variant">SEVERITY MIX · STACKED</p>
       <div className="flex h-4 rounded-full overflow-hidden mt-space-sm border border-outline-variant">
-        {SEGS.map((s) => (
+        {segs.map((s) => (
           <span key={s.k} className={s.c} style={{ width: `${s.v}%` }} title={`${s.k} ${s.v}%`} />
         ))}
       </div>
       <ul className="flex flex-wrap gap-space-md pt-space-sm font-data-mono-sm text-on-surface-variant">
-        {SEGS.map((s) => (
+        {segs.map((s) => (
           <li key={s.k}>{s.k} {s.v}%</li>
         ))}
       </ul>

@@ -5,12 +5,17 @@ const SECTORS = [
   { k: 'UNION', v: 48 },
 ];
 
-export function ResponseTimeChart() {
+export interface SectorTime {
+  k: string;
+  v: number;
+}
+
+export function ResponseTimeChart({ sectors = SECTORS }: { sectors?: SectorTime[] }) {
   return (
     <section className="bg-surface-container-lowest border border-outline-variant rounded-sm p-space-md">
       <p className="font-label-caps text-on-surface-variant pb-space-sm">RESPONSE TIME BY SECTOR (s)</p>
       <ul className="flex flex-col gap-space-xs">
-        {SECTORS.map((s) => (
+        {sectors.map((s) => (
           <li key={s.k} className="flex items-center gap-space-sm">
             <span className="w-20 font-data-mono-sm text-on-surface">{s.k}</span>
             <span className="flex-1 h-3 bg-surface-container-high rounded-full overflow-hidden">

@@ -12,22 +12,8 @@ interface NavItem {
 const OPERATIONS: NavItem[] = [
   { to: '/command-center', label: 'Command Center', icon: 'dashboard', desc: 'City overview' },
   { to: '/cameras', label: 'Live Cameras', icon: 'videocam', desc: '24 feeds' },
-  { to: '/incidents', label: 'Incidents', icon: 'warning', desc: 'Active queue', badge: '3' },
-  { to: '/map', label: 'City Map', icon: 'explore', desc: 'Geospatial' },
   { to: '/analytics', label: 'Analytics', icon: 'query_stats', desc: 'Trends & KPIs' },
   { to: '/emergency', label: 'Emergency', icon: 'notifications_active', desc: 'Dispatch', badge: '1', alert: true },
-];
-
-const INTELLIGENCE: NavItem[] = [
-  { to: '/ai-verification', label: 'AI Verification', icon: 'verified', desc: 'Model review' },
-  { to: '/tracking', label: 'Tracking', icon: 'route', desc: 'Subject trails' },
-  { to: '/crowd', label: 'Crowd Intel', icon: 'groups', desc: 'Density monitor' },
-  { to: '/baggage', label: 'Baggage', icon: 'luggage', desc: 'Unattended items' },
-];
-
-const SYSTEM: NavItem[] = [
-  { to: '/resources', label: 'Resources', icon: 'inventory_2', desc: 'Units & assets' },
-  { to: '/settings', label: 'Settings', icon: 'settings', desc: 'Console prefs' },
 ];
 
 interface Props {
@@ -172,11 +158,55 @@ function SidebarBody({
       </div>
 
       {/* Nav */}
-      <nav className={`flex-1 overflow-y-auto py-3 ${collapsed ? 'px-2' : 'px-3'} pb-5`} aria-label="Primary">
+      <nav className={`flex-1 overflow-y-auto py-3 ${collapsed ? 'px-2' : 'px-3'} pb-2`} aria-label="Primary">
         <NavGroup title="OPERATIONS" items={OPERATIONS} collapsed={collapsed} onNavigate={onNavigate} />
-        <NavGroup title="INTELLIGENCE" items={INTELLIGENCE} collapsed={collapsed} onNavigate={onNavigate} />
-        <NavGroup title="SYSTEM" items={SYSTEM} collapsed={collapsed} onNavigate={onNavigate} />
       </nav>
+
+      {/* Bottom: settings */}
+      <div className={collapsed ? 'px-2 pb-4' : 'px-3 pb-4'}>
+        <div className="border-t border-white/10 pt-3">
+          <NavLink
+            to="/settings"
+            onClick={onNavigate}
+            title={collapsed ? 'Settings' : undefined}
+            className={({ isActive }) =>
+              `group flex items-center gap-3 rounded-xl transition-all ${
+                collapsed ? 'justify-center px-0 py-2' : 'px-2.5 py-2'
+              } ${
+                isActive
+                  ? 'bg-secondary text-on-primary shadow-pop'
+                  : 'text-slate-300 hover:bg-white/5 hover:text-white'
+              }`
+            }
+          >
+            {({ isActive }) => (
+              <>
+                <span
+                  className={`flex h-9 w-9 items-center justify-center rounded-lg shrink-0 transition-colors ${
+                    isActive ? 'bg-white/20' : 'bg-white/5 group-hover:bg-white/10'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[20px]">settings</span>
+                </span>
+                {!collapsed && (
+                  <>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-data-mono-md font-semibold">Settings</span>
+                      <span className={`block truncate font-data-mono-sm ${isActive ? 'text-blue-100' : 'text-slate-400'}`}>
+                        Console prefs
+                      </span>
+                    </span>
+                    {isActive && <span className="h-5 w-1 shrink-0 rounded-full bg-white/70" />}
+                  </>
+                )}
+              </>
+            )}
+          </NavLink>
+          {!collapsed && (
+            <p className="pt-3 text-center font-data-mono-sm text-slate-500">CIVICEYE v4.2 · BUILD 90218</p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
