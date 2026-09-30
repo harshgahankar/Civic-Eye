@@ -8,9 +8,11 @@ export interface DispatchModalProps {
   onClose?: () => void;
   onConfirm?: (unitId: string) => void;
   incidentId?: string;
+  /** All incidents on the card — dispatched together (defaults to [incidentId]). */
+  incidentIds?: string[];
 }
 
-export function DispatchModal({ open, onClose, onConfirm, incidentId = '' }: DispatchModalProps) {
+export function DispatchModal({ open, onClose, onConfirm, incidentId = '', incidentIds }: DispatchModalProps) {
   const pushToast = useUiStore((s) => s.pushToast);
   const [unitId, setUnitId] = useState('');
   const [busy, setBusy] = useState(false);
@@ -33,31 +35,43 @@ export function DispatchModal({ open, onClose, onConfirm, incidentId = '' }: Dis
 
   const confirm = async () => {
     const unit = unitId.trim();
-    if (!unit || !incidentId) {
+    const ids = (incidentIds ?? [incidentId]).filter(Boolean);
+    if (!unit || ids.length === 0) {
       pushToast('Enter a response unit ID to dispatch.', 'error');
       return;
     }
     setBusy(true);
     try {
-      await incidentService.dispatch(incidentId);
-      onConfirm?.(unit);
-      pushToast(`${unit} dispatched to ${incidentId}.`, 'success');
-      onClose?.();
+      const results = await Promise.allSettled(ids.map((id) => incidentService.dispatch(id)));
+      const ok = results.filter((r) => r.status === 'fulfilled').length;
+      if (ok === ids.length) {
+        onConfirm?.(unit);
+        pushToast(
+          ids.length > 1 ? `${unit} dispatched to ${ok} incidents (${ids[0]} +${ok - 1}).` : `${unit} dispatched to ${ids[0]}.`,
+          'success',
+        );
+        onClose?.();
+      } else {
+        pushToast(`Dispatch partially failed — ${ok}/${ids.length} assigned to ${unit}.`, 'error');
+      }
     } catch {
-      pushToast(`Dispatch failed — backend unreachable for ${incidentId}.`, 'error');
+      pushToast(`Dispatch failed — backend unreachable for ${ids[0]}.`, 'error');
     } finally {
       setBusy(false);
     }
   };
 
+  const titleId = (incidentIds ?? [incidentId]).filter(Boolean);
+  const title = titleId.length > 1 ? `${titleId[0]} +${titleId.length - 1} MORE` : (titleId[0] || '—');
+
   return createPortal(
-    <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-primary/60 backdrop-blur-sm p-4 anim-fade-up" onClick={onClose} role="dialog" aria-modal="true" aria-label={`Dispatch ${incidentId}`}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-primary/60 backdrop-blur-sm p-4 anim-fade-up" onClick={onClose} role="dialog" aria-modal="true" aria-label={`Dispatch ${title}`}>
       <div
         className="w-full max-w-[440px] rounded-2xl border border-outline-variant bg-surface-container-lowest p-6 shadow-pop anim-scale-in"
         onClick={(e) => e.stopPropagation()}
       >
         <p className="eyebrow">DISPATCH MATRIX</p>
-        <h3 className="section-title pt-1">Dispatch {incidentId || '—'}</h3>
+        <h3 className="section-title pt-1">Dispatch {title}</h3>
         <p className="pt-1 font-body-md text-on-surface-variant">Assign a response unit. The assignment is logged to the audit trail.</p>
         <label className="block pt-4">
           <span className="mb-1.5 block font-label-caps text-on-surface-variant">RESPONSE UNIT ID</span>

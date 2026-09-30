@@ -7,21 +7,82 @@ import type { ArchivedAlert, Incident } from '../../types/incident';
 import { useUiStore } from '../../store/uiStore';
 
 interface PriorityCard {
+  /** Stable key: `video:<filename>` for grouped upload cards, else the incident id. */
+  key: string;
   id: string;
   sev: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
   cam: string;
   title: string;
   tele: string;
+  video: string | null;
+  memberIds: string[];
+  count: number;
 }
 
-function toCard(i: Incident): PriorityCard {
+const SEV_RANK: Record<PriorityCard['sev'], number> = {
+  CRITICAL: 0,
+  HIGH: 1,
+  MEDIUM: 2,
+  LOW: 3,
+};
+
+/** Generic, human-readable titles per incident type (no raw IDs). */
+const TYPE_TITLE: Record<string, string> = {
+  'traffic-accident': 'Suspected traffic accident',
+  'unattended-object': 'Unattended bag reported',
+  'crowd-anomaly': 'Crowd anomaly detected',
+  security: 'Security incident reported',
+};
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "2026-09-30T17:51:37.030840" → "30 Sep 2026 · 17:51". */
+function formatStamp(ts: string): string {
+  const d = new Date(ts);
+  if (!ts || Number.isNaN(d.getTime())) return 'Time not available';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()} · ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function toCard(i: Incident, video: string | null): PriorityCard {
+  const confidence = i.confidence > 0 ? `CONF ${i.confidence.toFixed(1)}%` : 'CONFIDENCE PENDING';
   return {
+    key: video ? `video:${video}` : `id:${i.id}`,
     id: i.id,
     sev: i.severity.toUpperCase() as PriorityCard['sev'],
-    cam: `${i.cameraId} · ${i.sector}`,
-    title: i.title,
-    tele: `CONF ${i.confidence.toFixed(1)}% · ${i.timestamp}`,
+    cam: video ? 'UPLOADED VIDEO EVIDENCE' : `CAMERA ${i.cameraId}`,
+    title: TYPE_TITLE[i.type] ?? 'Incident reported',
+    tele: `${confidence} · ${formatStamp(i.timestamp)}`,
+    video,
+    memberIds: [i.id],
+    count: 1,
   };
+}
+
+/**
+ * One card per video: incidents stamped with the same upload `output_video`
+ * merge into a single card (worst severity wins) so a flagged video never
+ * repeats. Incidents without a video stay individual.
+ */
+function groupCards(cards: PriorityCard[]): PriorityCard[] {
+  const merged = new Map<string, PriorityCard>();
+  for (const c of cards) {
+    const prev = merged.get(c.key);
+    if (!prev) {
+      merged.set(c.key, c);
+      continue;
+    }
+    const primary = SEV_RANK[c.sev] < SEV_RANK[prev.sev] ? c : prev;
+    const memberIds = [...prev.memberIds, ...c.memberIds];
+    merged.set(c.key, {
+      ...primary,
+      key: c.key,
+      memberIds,
+      count: memberIds.length,
+      tele: `${memberIds.length} INCIDENTS · ${memberIds.join(', ')}`,
+    });
+  }
+  return [...merged.values()];
 }
 
 type CardStatus = 'active' | 'dispatched' | 'verified' | 'stood-down';
@@ -51,7 +112,8 @@ function IncidentVideo({ incidentId }: { incidentId: string }) {
     return (
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-primary-container" aria-label={`${incidentId} no video source`}>
         <span className="material-symbols-outlined text-[30px] text-slate-500">videocam_off</span>
-        <span className="font-data-mono-sm text-slate-400">AWAITING FEED</span>
+        <span className="font-data-mono-sm text-slate-400">NO VIDEO AVAILABLE</span>
+        <span className="font-data-mono-sm text-slate-500">Incident summary listed below</span>
       </div>
     );
   }
@@ -102,14 +164,31 @@ export function EmergencyResponsePage() {
 
   useEffect(() => {
     let live = true;
-    incidentService.list()
-      .then((rows) => {
+    (async () => {
+      try {
+        const rows = await incidentService.list();
         if (!live) return;
-        setCards(rows
-          .filter((i) => i.status === 'active' || i.status === 'pending' || i.status === 'monitoring')
-          .map(toCard));
-      })
-      .catch(() => {});
+        const active = rows.filter(
+          (i) => i.status === 'active' || i.status === 'pending' || i.status === 'monitoring',
+        );
+        // Resolve each incident's stamped upload video, then merge cards so
+        // one video appears exactly once.
+        const videos = await Promise.all(
+          active.map((i) =>
+            incidentService.detail(i.id)
+              .then((d) => {
+                const name = d?.metadata?.output_video;
+                return typeof name === 'string' && name ? name : null;
+              })
+              .catch(() => null),
+          ),
+        );
+        if (!live) return;
+        setCards(groupCards(active.map((i, idx) => toCard(i, videos[idx]))));
+      } catch {
+        /* backend offline — page stays empty */
+      }
+    })();
     incidentService.archived()
       .then((rows) => { if (live) setArchived(rows); })
       .catch(() => {});
@@ -119,10 +198,11 @@ export function EmergencyResponsePage() {
   const visible = cards.filter(
     (p) =>
       (sevFilter === 'ALL' || p.sev === sevFilter) &&
-      (query === '' || `${p.id} ${p.title} ${p.cam}`.toLowerCase().includes(query.toLowerCase()))
+      (query === '' || `${p.id} ${p.memberIds.join(' ')} ${p.title} ${p.cam}`.toLowerCase().includes(query.toLowerCase()))
   );
 
   const setCard = (id: string, s: CardStatus) => setStatus((prev) => ({ ...prev, [id]: s }));
+  const dispatchIds = dispatchFor !== null ? (cards.find((c) => c.key === dispatchFor)?.memberIds ?? []) : [];
 
   return (
     <div className="flex flex-col gap-space-lg">
@@ -186,15 +266,16 @@ export function EmergencyResponsePage() {
       )}
       <div className="grid grid-cols-1 gap-space-md lg:grid-cols-3">
         {visible.map((a) => {
-          const st = status[a.id] ?? 'active';
+          const st = status[a.key] ?? 'active';
           const ribbon = STATUS_RIBBON[st];
           const closed = st === 'stood-down';
+          const label = a.count > 1 ? `${a.id} +${a.count - 1} MORE` : a.id;
           return (
-            <article key={a.id} className={`overflow-hidden rounded-sm border border-outline-variant bg-surface-container-lowest transition ${closed ? 'opacity-60' : ''}`}>
+            <article key={a.key} className={`overflow-hidden rounded-sm border border-outline-variant bg-surface-container-lowest transition ${closed ? 'opacity-60' : ''}`}>
               <div className="relative aspect-video bg-primary">
                 <IncidentVideo incidentId={a.id} />
                 <span className={`absolute left-space-sm top-space-sm px-space-sm py-0.5 font-label-caps ${SEV_STYLE[a.sev]}`}>
-                  {a.sev} · {a.id}
+                  {a.sev} · {label}
                 </span>
                 {ribbon && (
                   <span className="absolute bottom-space-sm left-space-sm rounded-sm bg-primary/85 px-space-sm py-0.5 font-label-caps text-on-primary backdrop-blur-sm">
@@ -204,15 +285,15 @@ export function EmergencyResponsePage() {
               </div>
               <div className="p-space-md">
                 <p className="font-data-mono-sm text-on-surface-variant">{a.cam}</p>
-                <h3 className="font-headline-md text-on-surface pt-1">{a.title}</h3>
+                <h3 className="font-headline-md text-on-surface pt-1">{a.title}{a.count > 1 ? ` · ${a.count} INCIDENTS` : ''}</h3>
                 <p className="font-data-mono-sm text-on-surface-variant pt-1">{a.tele}</p>
                 <div className="flex flex-wrap gap-space-sm pt-space-sm">
                   {closed ? (
                     <button
                       type="button"
                       onClick={() => {
-                        setCard(a.id, 'active');
-                        pushToast(`${a.id} reopened to the active queue.`, 'info');
+                        setCard(a.key, 'active');
+                        pushToast(`${label} reopened to the active queue.`, 'info');
                       }}
                       className="font-label-caps border border-secondary px-space-sm py-1 text-secondary rounded-sm hover:bg-blue-50 transition"
                     >
@@ -222,7 +303,7 @@ export function EmergencyResponsePage() {
                     <>
                       <button
                         type="button"
-                        onClick={() => setDispatchFor(a.id)}
+                        onClick={() => setDispatchFor(a.key)}
                         disabled={st === 'dispatched'}
                         className="font-label-caps bg-error px-space-sm py-1 text-on-error rounded-sm hover:bg-red-700 disabled:opacity-50 disabled:pointer-events-none transition"
                       >
@@ -231,8 +312,8 @@ export function EmergencyResponsePage() {
                       <button
                         type="button"
                         onClick={() => {
-                          setCard(a.id, 'verified');
-                          pushToast(`${a.id} verified by field unit.`, 'success');
+                          setCard(a.key, 'verified');
+                          pushToast(`${label} verified by field unit.`, 'success');
                         }}
                         disabled={st === 'verified'}
                         className="font-label-caps border border-secondary px-space-sm py-1 text-secondary rounded-sm hover:bg-blue-50 disabled:opacity-50 disabled:pointer-events-none transition"
@@ -242,8 +323,8 @@ export function EmergencyResponsePage() {
                       <button
                         type="button"
                         onClick={() => {
-                          setCard(a.id, 'stood-down');
-                          pushToast(`${a.id} stood down and archived.`, 'info');
+                          setCard(a.key, 'stood-down');
+                          pushToast(`${label} stood down and archived.`, 'info');
                         }}
                         className="font-label-caps border border-outline px-space-sm py-1 text-on-surface-variant rounded-sm hover:border-on-surface-variant transition"
                       >
@@ -260,7 +341,8 @@ export function EmergencyResponsePage() {
 
       <DispatchModal
         open={dispatchFor !== null}
-        incidentId={dispatchFor ?? ''}
+        incidentId={dispatchIds[0] ?? ''}
+        incidentIds={dispatchIds}
         onClose={() => setDispatchFor(null)}
         onConfirm={() => {
           if (dispatchFor) setCard(dispatchFor, 'dispatched');

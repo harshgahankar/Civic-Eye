@@ -33,6 +33,7 @@ from app.schemas.behavior_event import BehaviorEvent
 from app.schemas.detection import DetectionEvent
 from app.schemas.incident import EvidenceItem, IncidentDetail, StatusTransition
 
+from app.behavior.collision import VEHICLE_CLASSES
 from app.intelligence.accident import assess_accident
 from app.intelligence.baggage import BaggageTracker
 from app.intelligence.crowd_anomaly import assess_crowd_anomaly
@@ -209,6 +210,13 @@ class IncidentEngine:
     # ── Accident path ─────────────────────────────────────────────────────
 
     def _handle_accident_signal(self, event: BehaviorEvent) -> Optional[IncidentDetail]:
+        # Traffic accidents involve vehicles. Person-only signals (a pedestrian
+        # turning, stopping, or standing in a crowd) must never open an
+        # ACCIDENT candidate — dense crowds otherwise spawn one candidate per
+        # person track. Events without class info still pass through.
+        classes = [c.lower() for c in (event.class_names or [])]
+        if classes and not any(c in VEHICLE_CLASSES for c in classes):
+            return None
         key = self._accident_key(event)
         item = behavior_event_to_evidence(event)
         result = self._accident_verifier.add(key, item)

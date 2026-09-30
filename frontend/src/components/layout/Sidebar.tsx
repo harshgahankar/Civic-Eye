@@ -13,7 +13,7 @@ const OPERATIONS: NavItem[] = [
   { to: '/command-center', label: 'Command Center', icon: 'dashboard', desc: 'City overview' },
   { to: '/cameras', label: 'Live Cameras', icon: 'videocam', desc: '24 feeds' },
   { to: '/analytics', label: 'Analytics', icon: 'query_stats', desc: 'Trends & KPIs' },
-  { to: '/emergency', label: 'Emergency', icon: 'notifications_active', desc: 'Dispatch', badge: '1', alert: true },
+  { to: '/emergency', label: 'Emergency', icon: 'notifications_active', desc: 'Dispatch' },
 ];
 
 interface Props {
