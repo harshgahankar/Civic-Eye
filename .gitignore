@@ -44,12 +44,13 @@ coverage.xml
 
 # ── AI / data artefacts ───────────────────────────────────────────────────────
 data/videos/outputs/
+data/videos/sample/
 data/outputs/
 backend/data/
 *.pt
 *.onnx
 *.weights
-# Keep sample videos (data/videos/sample/) tracked — ignore everything else video-ish
+# Keep sample videos (data/videos/sample/) local only — never push binaries
 # ── Test / debug outputs ──────────────────────────────────────────────────────
 *_out.txt
 *pytest*.txt
