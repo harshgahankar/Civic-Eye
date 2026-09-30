@@ -1,20 +1,43 @@
 import { api } from './api';
-import { mockArchivedIncidents, mockIncidents } from '../data/mockIncidents';
-import type { Incident } from '../types/incident';
+import { mapIncident, type BackendIncidentDetail, type BackendIncidentSummary } from './backend';
+import type { ArchivedAlert, Incident } from '../types/incident';
 
-const USE_MOCK = true;
-
+/** Live backend only — empty results when the DB has no incidents yet. */
 export const incidentService = {
   list: async (): Promise<Incident[]> => {
-    if (USE_MOCK) return mockIncidents;
-    return api.get<Incident[]>('/incidents');
+    const rows = await api.get<BackendIncidentSummary[]>('/incidents?limit=100');
+    return rows.map(mapIncident);
   },
   get: async (id: string): Promise<Incident | undefined> => {
-    if (USE_MOCK) return mockIncidents.find((i) => i.id === id);
-    return api.get<Incident>(`/incidents/${id}`);
+    try {
+      const row = await api.get<BackendIncidentSummary>(`/incidents/${id}`);
+      return mapIncident(row);
+    } catch {
+      return undefined;
+    }
   },
-  archived: async () => {
-    if (USE_MOCK) return mockArchivedIncidents;
-    return api.get('/incidents?status=resolved');
+  /** Full detail incl. metadata (carries upload `output_video` for flagged videos). */
+  detail: async (id: string): Promise<BackendIncidentDetail | undefined> => {
+    try {
+      return await api.get<BackendIncidentDetail>(`/incidents/${id}`);
+    } catch {
+      return undefined;
+    }
+  },
+  archived: async (): Promise<ArchivedAlert[]> => {
+    const rows = await api.get<BackendIncidentSummary[]>('/incidents?status=RESOLVED&limit=100');
+    return rows.map((r) => ({
+      id: r.incident_id,
+      title: `${r.incident_type} — ${r.camera_id ?? ''}`,
+      severity: (r.severity?.toLowerCase() ?? 'low') as Incident['severity'],
+      resolvedAt: r.updated_at ?? '',
+      duration: '',
+    }));
+  },
+  resolve: async (id: string): Promise<void> => {
+    await api.post(`/incidents/${id}/resolve`, { reason: 'resolved from dashboard' });
+  },
+  dispatch: async (id: string): Promise<void> => {
+    await api.post(`/incidents/${id}/dispatch`, { reason: 'dispatched from dashboard' });
   },
 };

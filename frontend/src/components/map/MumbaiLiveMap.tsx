@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster';
@@ -9,6 +9,8 @@ import {
   type ExternalCamera,
 } from '../../services/surveillanceService';
 import { useUiStore } from '../../store/uiStore';
+import { useCameras } from '../../hooks/useCameras';
+import { useIncidents } from '../../hooks/useIncidents';
 
 export interface MumbaiLiveMapProps {
   interactive?: boolean;
@@ -29,39 +31,14 @@ interface Cam {
   fps: number;
 }
 
-const CAMERAS: Cam[] = [
-  { id: 'CAM-11', site: 'Borivali West', pos: [19.2307, 72.8567], status: 'LIVE', fps: 30 },
-  { id: 'CAM-14', site: 'Thane Station E', pos: [19.1865, 72.9759], status: 'LIVE', fps: 30 },
-  { id: 'CAM-09', site: 'Powai Plaza', pos: [19.1197, 72.9059], status: 'LIVE', fps: 30 },
-  { id: 'CAM-05', site: 'Airport T2', pos: [19.0902, 72.8656], status: 'LIVE', fps: 30 },
-  { id: 'CAM-04', site: 'Juhu Beach', pos: [19.1075, 72.8263], status: 'LIVE', fps: 30 },
-  { id: 'CAM-06', site: 'Sea Link South', pos: [19.033, 72.819], status: 'LIVE', fps: 25 },
-  { id: 'CAM-03', site: 'CSMT Concourse', pos: [18.9401, 72.8357], status: 'LIVE', fps: 30 },
-  { id: 'CAM-02', site: 'Colaba Causeway', pos: [18.9067, 72.8147], status: 'IDLE', fps: 15 },
-];
-
-const UNITS = [
-  { id: 'UNIT-12', pos: [19.03, 72.87] as [number, number] },
-  { id: 'UNIT-07', pos: [19.08, 72.88] as [number, number] },
-];
-
-const CRITICAL = {
-  id: 'INC-2401',
-  title: 'Dadar TT pile-up',
-  cam: 'CAM-07 · DADAR',
-  pos: [19.0176, 72.8562] as [number, number],
-  meta: '2 lanes blocked · conf 94.2%',
-  unit: 'UNIT-12 en route · ETA 3 min',
-};
-
-const WARNING = {
-  id: 'INC-2400',
-  title: 'Unattended baggage — Airport T2',
-  cam: 'CAM-05 · AIRPORT',
-  pos: [19.094, 72.872] as [number, number],
-  meta: 'Dwell 07:18 · conf 91.4%',
-  unit: 'CISF desk notified',
-};
+interface PlottedIncident {
+  id: string;
+  title: string;
+  cam: string;
+  pos: [number, number];
+  meta: string;
+  critical: boolean;
+}
 
 const MONO = "'IBM Plex Mono',monospace";
 const SANS = "'Public Sans',sans-serif";
@@ -124,16 +101,6 @@ function incidentPopup(o: { id: string; title: string; cam: string; meta: string
   </div>`;
 }
 
-const unitIcon = (id: string): L.DivIcon =>  L.divIcon({
-    className: '',
-    html: `<div style="display:flex;align-items:center;gap:4px">
-      <span style="width:11px;height:11px;border-radius:3px;background:#10b981;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.5)"></span>
-      <span style="border-radius:4px;background:rgba(15,23,42,.85);padding:1px 5px;font-family:${MONO};font-size:9px;font-weight:600;color:#a7f3d0;white-space:nowrap">${id}</span>
-    </div>`,
-    iconSize: [80, 18],
-    iconAnchor: [40, 9],
-  });
-
 /** Teal diamond for provider (OSDB) external cameras. */
 const osdbIcon = (label: string): L.DivIcon =>
   L.divIcon({
@@ -156,7 +123,7 @@ function osdbPopup(c: ExternalCamera): string {
 }
 
 /** Camera markers with zoom-out clustering (plain Leaflet layer, cleaned up on unmount). */
-function ClusteredCameras({ interactive }: { interactive: boolean }) {
+function ClusteredCameras({ interactive, cameras }: { interactive: boolean; cameras: Cam[] }) {
   const map = useMap();
   useEffect(() => {
     const group = (L as unknown as { markerClusterGroup: (o: object) => L.LayerGroup }).markerClusterGroup({
@@ -175,7 +142,7 @@ function ClusteredCameras({ interactive }: { interactive: boolean }) {
         });
       },
     });
-    CAMERAS.forEach((c) => {
+    cameras.forEach((c) => {
       const m = L.marker(c.pos, { icon: camIcon(c), keyboard: interactive, title: `${c.id} · ${c.site}` });
       m.bindPopup(camPopup(c), { closeButton: true });
       m.bindTooltip(`${c.id} · ${c.site}`, { direction: 'top', offset: [0, -18], opacity: 1, className: 'civic-tip' });
@@ -185,7 +152,7 @@ function ClusteredCameras({ interactive }: { interactive: boolean }) {
     return () => {
       map.removeLayer(group);
     };
-  }, [map, interactive]);
+  }, [map, interactive, cameras]);
   return null;
 }
 
@@ -209,7 +176,6 @@ const LEGEND: { dot: string; label: string; pulse?: boolean }[] = [
   { dot: '#64748b', label: 'CAM · IDLE' },
   { dot: '#f59e0b', label: 'WARNING', pulse: true },
   { dot: '#dc2626', label: 'CRITICAL', pulse: true },
-  { dot: '#10b981', label: 'UNIT' },
 ];
 
 export function MumbaiLiveMap({ interactive = true }: MumbaiLiveMapProps) {
@@ -217,6 +183,38 @@ export function MumbaiLiveMap({ interactive = true }: MumbaiLiveMapProps) {
   const [osdb, setOsdb] = useState<ExternalCamera[] | null>(null);
   const [osdbState, setOsdbState] = useState<'off' | 'loading' | 'live' | 'error'>('off');
   const configured = isOsdbConfigured();
+  const { cameras } = useCameras();
+  const { incidents } = useIncidents();
+
+  const mapCams: Cam[] = useMemo(() => cameras.map((c) => ({
+    id: c.id,
+    site: `${c.name} · ${c.location}`,
+    pos: [c.lat, c.lng],
+    status: c.status === 'online' ? 'LIVE' : 'IDLE',
+    fps: c.fps,
+  })), [cameras]);
+
+  // Live incidents plotted at their camera's install coordinates.
+  // Incidents from cameras without known coordinates are skipped.
+  const plotted: PlottedIncident[] = useMemo(() => {
+    const coords = new Map(cameras.map((c) => [c.id, [c.lat, c.lng] as [number, number]]));
+    return incidents
+      .filter((i) => i.status === 'active' || i.status === 'pending' || i.status === 'monitoring')
+      .map((i) => ({ i, pos: coords.get(i.cameraId) }))
+      .filter((r): r is { i: (typeof incidents)[number]; pos: [number, number] } =>
+        !!r.pos && !(r.pos[0] === 0 && r.pos[1] === 0))
+      .slice(0, 8)
+      .map(({ i, pos }) => ({
+        id: i.id,
+        title: i.title,
+        cam: i.cameraId,
+        pos,
+        meta: `conf ${i.confidence.toFixed(1)}% · ${i.timestamp}`,
+        critical: i.severity === 'critical',
+      }));
+  }, [cameras, incidents]);
+  const critical = plotted.find((p) => p.critical) ?? null;
+  const warnings = plotted.filter((p) => !p.critical).slice(0, 3);
 
   const toggleOsdb = async () => {
     if (osdbState === 'loading') return;
@@ -274,19 +272,21 @@ export function MumbaiLiveMap({ interactive = true }: MumbaiLiveMapProps) {
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         />
         <ZoomControl position="topright" />
-        <ClusteredCameras interactive={interactive} />
-        <Circle
-          center={CRITICAL.pos}
-          radius={900}
-          pathOptions={{ color: '#dc2626', weight: 1.5, dashArray: '6 4', fillColor: '#dc2626', fillOpacity: 0.08 }}
-        />
-        <Circle
-          center={WARNING.pos}
-          radius={450}
-          pathOptions={{ color: '#f59e0b', weight: 1.5, dashArray: '6 4', fillColor: '#f59e0b', fillOpacity: 0.08 }}
-        />
-        {UNITS.map((u) => (
-          <Marker key={u.id} position={u.pos} icon={unitIcon(u.id)} keyboard={false} interactive={false} />
+        <ClusteredCameras interactive={interactive} cameras={mapCams} />
+        {critical && (
+          <Circle
+            center={critical.pos}
+            radius={900}
+            pathOptions={{ color: '#dc2626', weight: 1.5, dashArray: '6 4', fillColor: '#dc2626', fillOpacity: 0.08 }}
+          />
+        )}
+        {warnings.map((w) => (
+          <Circle
+            key={`circle-${w.id}`}
+            center={w.pos}
+            radius={450}
+            pathOptions={{ color: '#f59e0b', weight: 1.5, dashArray: '6 4', fillColor: '#f59e0b', fillOpacity: 0.08 }}
+          />
         ))}
         {osdb?.map((c) => (
           <Marker key={`osdb-${c.id}`} position={[c.lat, c.lng]} icon={osdbIcon(c.name)} keyboard={interactive}>
@@ -295,38 +295,42 @@ export function MumbaiLiveMap({ interactive = true }: MumbaiLiveMapProps) {
             </Popup>
           </Marker>
         ))}
-        <Marker position={WARNING.pos} icon={incidentIcon('warning')} keyboard={interactive}>
-          <Popup>
-            <div
-              dangerouslySetInnerHTML={{
-                __html: incidentPopup({
-                  id: WARNING.id,
-                  title: WARNING.title,
-                  cam: WARNING.cam,
-                  meta: WARNING.meta,
-                  unit: WARNING.unit,
-                  critical: false,
-                }),
-              }}
-            />
-          </Popup>
-        </Marker>
-        <Marker position={CRITICAL.pos} icon={incidentIcon('critical')} keyboard={interactive} zIndexOffset={500}>
-          <Popup>
-            <div
-              dangerouslySetInnerHTML={{
-                __html: incidentPopup({
-                  id: CRITICAL.id,
-                  title: CRITICAL.title,
-                  cam: CRITICAL.cam,
-                  meta: CRITICAL.meta,
-                  unit: CRITICAL.unit,
-                  critical: true,
-                }),
-              }}
-            />
-          </Popup>
-        </Marker>
+        {warnings.map((w) => (
+          <Marker key={w.id} position={w.pos} icon={incidentIcon('warning')} keyboard={interactive}>
+            <Popup>
+              <div
+                dangerouslySetInnerHTML={{
+                  __html: incidentPopup({
+                    id: w.id,
+                    title: w.title,
+                    cam: w.cam,
+                    meta: w.meta,
+                    unit: '',
+                    critical: false,
+                  }),
+                }}
+              />
+            </Popup>
+          </Marker>
+        ))}
+        {critical && (
+          <Marker position={critical.pos} icon={incidentIcon('critical')} keyboard={interactive} zIndexOffset={500}>
+            <Popup>
+              <div
+                dangerouslySetInnerHTML={{
+                  __html: incidentPopup({
+                    id: critical.id,
+                    title: critical.title,
+                    cam: critical.cam,
+                    meta: critical.meta,
+                    unit: '',
+                    critical: true,
+                  }),
+                }}
+              />
+            </Popup>
+          </Marker>
+        )}
         <RecenterButton />
       </MapContainer>
 

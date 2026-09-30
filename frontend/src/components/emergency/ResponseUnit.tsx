@@ -5,8 +5,8 @@ export interface Unit {
   eta: string;
 }
 
-export function ResponseUnit({ unit }: { unit?: Unit }) {
-  const u: Unit = unit ?? { id: 'UNIT-07', type: 'ESU', status: 'EN ROUTE', eta: '3 MIN' };
+export function ResponseUnit({ unit }: { unit: Unit }) {
+  const u: Unit = unit;
   return (
     <tr className="border-b border-outline-variant font-data-mono-md text-on-surface">
       <td className="px-space-sm py-space-xs">{u.id}</td>

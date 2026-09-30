@@ -6,7 +6,16 @@ from app.schemas.detection import (
     RawDetection,
 )
 from app.schemas.event import EventCreate, EventResponse
-from app.schemas.incident import IncidentCreate, IncidentResponse
+from app.schemas.incident import (
+    EvidenceItem,
+    IncidentCreate,
+    IncidentDetail,
+    IncidentResponse,
+    IncidentStatus,
+    IncidentType,
+    Severity,
+    StatusTransition,
+)
 from app.schemas.alert import AlertCreate, AlertResponse
 from app.schemas.tracking import JobStatus, StartJobRequest, StartJobResponse
 from app.schemas.behavior_event import BehaviorEvent
@@ -24,6 +33,12 @@ __all__ = [
     "EventResponse",
     "IncidentCreate",
     "IncidentResponse",
+    "IncidentDetail",
+    "IncidentType",
+    "IncidentStatus",
+    "Severity",
+    "EvidenceItem",
+    "StatusTransition",
     "AlertCreate",
     "AlertResponse",
     "JobStatus",

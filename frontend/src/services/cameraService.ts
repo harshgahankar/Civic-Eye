@@ -1,32 +1,33 @@
 import { api } from './api';
-import { MUMBAI_AREAS, mockCameras } from '../data/mockCameras';
+import { directoryAreas, directoryCameras } from '../data/cameraDirectory';
 import type { Camera } from '../types/camera';
 
-const USE_MOCK = true;
-
+/** Backend registry first, install directory second (both live-sourced). */
 export const cameraService = {
   list: async (): Promise<Camera[]> => {
-    if (USE_MOCK) return mockCameras;
-    return api.get<Camera[]>('/cameras');
+    try {
+      const rows = await api.get<Camera[]>('/cameras');
+      if (rows.length) return rows;
+    } catch { /* fall through to directory */ }
+    return directoryCameras;
   },
-  /** Area-filtered wall. Real backend: GET /cameras?area=Andheri */
   listByArea: async (area: string): Promise<Camera[]> => {
-    if (area === 'ALL AREAS') return cameraService.list();
-    if (USE_MOCK) return mockCameras.filter((c) => c.area === area);
-    return api.get<Camera[]>(`/cameras?area=${encodeURIComponent(area)}`);
+    const cams = await cameraService.list();
+    if (area === 'ALL AREAS') return cams;
+    return cams.filter((c) => c.area === area);
   },
-  /** Area taxonomy with live camera counts. Real backend: GET /cameras/areas */
   areas: async (): Promise<{ name: string; count: number }[]> => {
-    if (USE_MOCK) {
-      return MUMBAI_AREAS.map((name) => ({
-        name,
-        count: mockCameras.filter((c) => c.area === name).length,
-      }));
-    }
-    return api.get<{ name: string; count: number }[]>('/cameras/areas');
+    const cams = await cameraService.list();
+    const counts = new Map<string, number>();
+    cams.forEach((c) => counts.set(c.area, (counts.get(c.area) ?? 0) + 1));
+    const names = counts.size ? [...counts.keys()] : [...directoryAreas];
+    return names.map((name) => ({ name, count: counts.get(name) ?? 0 }));
   },
   get: async (id: string): Promise<Camera | undefined> => {
-    if (USE_MOCK) return mockCameras.find((c) => c.id === id);
-    return api.get<Camera>(`/cameras/${id}`);
+    try {
+      return await api.get<Camera>(`/cameras/${id}`);
+    } catch {
+      return directoryCameras.find((c) => c.id === id);
+    }
   },
 };

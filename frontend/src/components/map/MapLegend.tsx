@@ -2,7 +2,6 @@ const ITEMS = [
   { c: 'bg-secondary', t: 'Camera online' },
   { c: 'bg-error', t: 'Critical incident' },
   { c: 'bg-amber-500', t: 'High incident' },
-  { c: 'bg-emerald-500', t: 'Response unit' },
 ];
 
 export function MapLegend() {

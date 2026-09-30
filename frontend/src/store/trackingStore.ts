@@ -8,7 +8,7 @@ interface TrackingState {
 }
 
 export const useTrackingStore = create<TrackingState>((set) => ({
-  activeTrackId: 'TRK-201',
+  activeTrackId: null,
   follow: true,
   setActiveTrack: (id) => set({ activeTrackId: id }),
   setFollow: (v) => set({ follow: v }),

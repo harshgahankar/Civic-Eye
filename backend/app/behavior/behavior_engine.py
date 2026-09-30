@@ -289,8 +289,19 @@ class BehaviorEngine:
             )
 
             # ── 9. Crowd anomaly detection ────────────────────────────────
+            # Pixel thresholds are calibrated for ~800 px frame diagonals;
+            # scale them for the actual resolution (e.g. 4K footage would
+            # otherwise saturate every speed comparison). Smooth the average
+            # speed first so single-frame track jitter cannot dominate.
+            res_scale = max(self._frame_diagonal / 800.0, 0.5)
+            alpha = settings.VELOCITY_SMOOTHING_ALPHA
+            if self._prev_crowd_stats is not None:
+                current_crowd.average_speed = round(
+                    alpha * current_crowd.average_speed
+                    + (1.0 - alpha) * self._prev_crowd_stats.average_speed, 4)
             triggered, confidence, reasons = detect_crowd_anomaly(
-                current_crowd, self._prev_crowd_stats
+                current_crowd, self._prev_crowd_stats,
+                speed_change_threshold=2.0 * res_scale,
             )
             if triggered:
                 bev = self._make_event(

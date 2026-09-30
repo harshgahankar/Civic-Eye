@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { mockCameras } from '../../data/mockCameras';
-import { mockArchivedIncidents, mockIncidents } from '../../data/mockIncidents';
-import { mockUnits } from '../../data/mockResources';
+import { useCameras } from '../../hooks/useCameras';
+import { useIncidents } from '../../hooks/useIncidents';
 import { useUiStore } from '../../store/uiStore';
 
 interface Hit {
@@ -16,13 +15,13 @@ interface Hit {
 
 const PAGES = [
   { title: 'Command Center', sub: 'City overview', icon: 'dashboard', to: '/command-center' },
-  { title: 'Live Cameras', sub: 'CCTV wall · 25 feeds', icon: 'videocam', to: '/cameras' },
+  { title: 'Live Cameras', sub: 'CCTV wall', icon: 'videocam', to: '/cameras' },
   { title: 'Emergency Alerts', sub: 'Dispatch queue', icon: 'notifications_active', to: '/emergency' },
   { title: 'Analytics', sub: 'Performance ledger', icon: 'query_stats', to: '/analytics' },
   { title: 'Settings', sub: 'Console preferences', icon: 'settings', to: '/settings' },
 ];
 
-const GROUP_ORDER = ['CAMERAS', 'INCIDENTS', 'UNITS', 'PAGES'];
+const GROUP_ORDER = ['CAMERAS', 'INCIDENTS', 'PAGES'];
 
 interface Props {
   id?: string;
@@ -38,6 +37,8 @@ export default function GlobalSearch({ id, autoFocus = false, showHint = false, 
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const boxRef = useRef<HTMLDivElement>(null);
+  const { cameras } = useCameras();
+  const { incidents } = useIncidents();
 
   const go = (to: string) => {
     navigate(to);
@@ -59,7 +60,7 @@ export default function GlobalSearch({ id, autoFocus = false, showHint = false, 
       }));
     }
     const out: Hit[] = [];
-    mockCameras
+    cameras
       .filter((c) => match(`${c.id} ${c.name} ${c.location} ${c.area}`))
       .slice(0, 4)
       .forEach((c) =>
@@ -75,7 +76,7 @@ export default function GlobalSearch({ id, autoFocus = false, showHint = false, 
           },
         }),
       );
-    [...mockIncidents, ...mockArchivedIncidents]
+    incidents
       .filter((i) => match(`${i.id} ${i.title}`))
       .slice(0, 4)
       .forEach((i) =>
@@ -85,23 +86,7 @@ export default function GlobalSearch({ id, autoFocus = false, showHint = false, 
           icon: 'warning',
           title: `${i.id} · ${i.title}`,
           sub: `Severity ${i.severity.toUpperCase()}`,
-          run: () => {
-            const isDossier = mockIncidents.some((m) => m.id === i.id);
-            go(isDossier ? `/incidents/${i.id}` : '/emergency');
-          },
-        }),
-      );
-    mockUnits
-      .filter((u) => match(`${u.id} ${u.name} ${u.type}`))
-      .slice(0, 4)
-      .forEach((u) =>
-        out.push({
-          key: `unit-${u.id}`,
-          group: 'UNITS',
-          icon: 'local_shipping',
-          title: `${u.id} · ${u.name}`,
-          sub: `${u.type} · ${u.status.toUpperCase()} · ETA ${u.eta}`,
-          run: () => go('/emergency'),
+          run: () => go(`/incidents/${i.id}`),
         }),
       );
     PAGES.filter((p) => match(`${p.title} ${p.sub}`)).forEach((p) =>
@@ -115,7 +100,7 @@ export default function GlobalSearch({ id, autoFocus = false, showHint = false, 
       }),
     );
     return out;
-  }, [query, navigate, setQuery]);
+  }, [query, navigate, setQuery, cameras, incidents]);
 
   useEffect(() => setActive(0), [query]);
 
@@ -147,8 +132,8 @@ export default function GlobalSearch({ id, autoFocus = false, showHint = false, 
           aria-expanded={open}
           aria-controls={id ? `${id}-results` : undefined}
           aria-activedescendant={flat[active] ? `${flat[active].key}-opt` : undefined}
-          aria-label="Search cameras, incidents, units, pages"
-          placeholder="Search cameras, incidents, units…"
+          aria-label="Search cameras, incidents, pages"
+          placeholder="Search cameras, incidents…"
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -195,7 +180,7 @@ export default function GlobalSearch({ id, autoFocus = false, showHint = false, 
         >
           {flat.length === 0 ? (
             <p className="px-4 py-5 text-center font-body-sm text-on-surface-variant">
-              No matches for “{query.trim()}”. Try a camera ID, incident ID, or unit.
+              No matches for “{query.trim()}”. Try a camera ID or incident ID.
             </p>
           ) : (
             <div className="max-h-80 overflow-y-auto py-1.5">

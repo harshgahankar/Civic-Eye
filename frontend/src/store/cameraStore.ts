@@ -8,7 +8,7 @@ interface CameraState {
 }
 
 export const useCameraStore = create<CameraState>((set) => ({
-  selectedId: 'CAM-07',
+  selectedId: null,
   sectorFilter: 'all',
   setSelected: (id) => set({ selectedId: id }),
   setSectorFilter: (s) => set({ sectorFilter: s }),

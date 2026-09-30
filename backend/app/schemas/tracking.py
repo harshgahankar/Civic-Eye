@@ -5,7 +5,7 @@ Tracking / processing-job schemas for the Civic-Eye API.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -20,6 +20,10 @@ class JobStatus(BaseModel):
     frames_processed: int = 0
     detections_count: int = 0
     behavior_events_count: int = 0
+    incidents_count: int = 0
+    confirmed_incidents_count: int = 0
+    false_alarm_count: int = 0
+    incident_ids: List[str] = Field(default_factory=list)
     average_fps: float = 0.0
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None

@@ -1,42 +1,87 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import EmergencyPanel from '../../components/emergency/EmergencyPanel';
 import DispatchModal from '../../components/emergency/DispatchModal';
-import { mockArchivedIncidents } from '../../data/mockIncidents';
+import { incidentService } from '../../services/incidentService';
+import { backend } from '../../services/backend';
+import type { ArchivedAlert, Incident } from '../../types/incident';
 import { useUiStore } from '../../store/uiStore';
 
-const PRIORITY = [
-  {
-    id: 'ALR-8842',
-    sev: 'CRITICAL',
-    cam: 'CAM-07 · JUNCTION A',
-    title: 'Multi-vehicle collision — 2 lanes blocked',
-    img: 'https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=640&q=60&auto=format&fit=crop',
-    tele: 'CONF 94.2% · 30FPS · 08:42:10Z',
-  },
-  {
-    id: 'ALR-8841',
-    sev: 'HIGH',
-    cam: 'CAM-04 · METRO CENTRAL',
-    title: 'Crowd surge — density +42% in 5 min',
-    img: 'https://images.unsplash.com/photo-1449824913935-59a10b8d2000?w=640&q=60&auto=format&fit=crop',
-    tele: 'CONF 88.7% · 30FPS · 08:40:55Z',
-  },
-  {
-    id: 'ALR-8839',
-    sev: 'MEDIUM',
-    cam: 'CAM-12 · STATION GATE 2',
-    title: 'Unattended baggage — dwell 6 min',
-    img: 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=640&q=60&auto=format&fit=crop',
-    tele: 'CONF 91.4% · 30FPS · 08:38:31Z',
-  },
-] as const;
+interface PriorityCard {
+  id: string;
+  sev: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  cam: string;
+  title: string;
+  tele: string;
+}
+
+function toCard(i: Incident): PriorityCard {
+  return {
+    id: i.id,
+    sev: i.severity.toUpperCase() as PriorityCard['sev'],
+    cam: `${i.cameraId} · ${i.sector}`,
+    title: i.title,
+    tele: `CONF ${i.confidence.toFixed(1)}% · ${i.timestamp}`,
+  };
+}
 
 type CardStatus = 'active' | 'dispatched' | 'verified' | 'stood-down';
+
+/** Flagged upload video for an incident card, if the pipeline stamped one. */
+function IncidentVideo({ incidentId }: { incidentId: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [flagged, setFlagged] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    incidentService.detail(incidentId)
+      .then((d) => {
+        if (!live || !d) return;
+        const name = d.metadata?.output_video;
+        if (typeof name === 'string' && name) {
+          setSrc(backend.outputVideoUrl(name));
+          setFlagged(d.metadata?.source === 'upload');
+        }
+      })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [incidentId]);
+
+  if (!src || failed) {
+    return (
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-primary-container" aria-label={`${incidentId} no video source`}>
+        <span className="material-symbols-outlined text-[30px] text-slate-500">videocam_off</span>
+        <span className="font-data-mono-sm text-slate-400">AWAITING FEED</span>
+      </div>
+    );
+  }
+  return (
+    <>
+      <video
+        src={src}
+        className="absolute inset-0 h-full w-full object-cover"
+        autoPlay
+        loop
+        muted
+        playsInline
+        controls
+        preload="metadata"
+        onError={() => setFailed(true)}
+      />
+      {flagged && (
+        <span className="absolute right-space-sm top-space-sm rounded-sm bg-error px-space-sm py-0.5 font-label-caps text-on-error">
+          FLAGGED · UPLOAD
+        </span>
+      )}
+    </>
+  );
+}
 
 const SEV_STYLE: Record<string, string> = {
   CRITICAL: 'bg-error text-on-error',
   HIGH: 'bg-amber-500 text-black',
   MEDIUM: 'bg-secondary text-on-primary',
+  LOW: 'bg-surface-container-high text-on-surface-variant',
 };
 
 const STATUS_RIBBON: Record<CardStatus, string | null> = {
@@ -51,9 +96,27 @@ export function EmergencyResponsePage() {
   const [sevFilter, setSevFilter] = useState('ALL');
   const [status, setStatus] = useState<Record<string, CardStatus>>({});
   const [dispatchFor, setDispatchFor] = useState<string | null>(null);
+  const [cards, setCards] = useState<PriorityCard[]>([]);
+  const [archived, setArchived] = useState<ArchivedAlert[]>([]);
   const pushToast = useUiStore((s) => s.pushToast);
 
-  const visible = PRIORITY.filter(
+  useEffect(() => {
+    let live = true;
+    incidentService.list()
+      .then((rows) => {
+        if (!live) return;
+        setCards(rows
+          .filter((i) => i.status === 'active' || i.status === 'pending' || i.status === 'monitoring')
+          .map(toCard));
+      })
+      .catch(() => {});
+    incidentService.archived()
+      .then((rows) => { if (live) setArchived(rows); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
+
+  const visible = cards.filter(
     (p) =>
       (sevFilter === 'ALL' || p.sev === sevFilter) &&
       (query === '' || `${p.id} ${p.title} ${p.cam}`.toLowerCase().includes(query.toLowerCase()))
@@ -69,9 +132,15 @@ export function EmergencyResponsePage() {
           <h1 className="font-headline-xl text-on-surface">EMERGENCY ALERTS</h1>
         </div>
         <div className="ml-auto flex gap-space-sm">
-          <span className="font-data-mono-sm rounded-full bg-error px-space-sm py-1 text-on-error">01 CRITICAL</span>
-          <span className="font-data-mono-sm rounded-full bg-amber-500 px-space-sm py-1 text-black">02 HIGH</span>
-          <span className="font-data-mono-sm rounded-full bg-secondary px-space-sm py-1 text-on-primary">04 MEDIUM</span>
+          <span className="font-data-mono-sm rounded-full bg-error px-space-sm py-1 text-on-error">
+            {String(cards.filter((c) => c.sev === 'CRITICAL').length).padStart(2, '0')} CRITICAL
+          </span>
+          <span className="font-data-mono-sm rounded-full bg-amber-500 px-space-sm py-1 text-black">
+            {String(cards.filter((c) => c.sev === 'HIGH').length).padStart(2, '0')} HIGH
+          </span>
+          <span className="font-data-mono-sm rounded-full bg-secondary px-space-sm py-1 text-on-primary">
+            {String(cards.filter((c) => c.sev === 'MEDIUM').length).padStart(2, '0')} MEDIUM
+          </span>
         </div>
       </header>
 
@@ -123,7 +192,7 @@ export function EmergencyResponsePage() {
           return (
             <article key={a.id} className={`overflow-hidden rounded-sm border border-outline-variant bg-surface-container-lowest transition ${closed ? 'opacity-60' : ''}`}>
               <div className="relative aspect-video bg-primary">
-                <img src={a.img} alt={`${a.id} snapshot`} className="absolute inset-0 h-full w-full object-cover" loading="lazy" />
+                <IncidentVideo incidentId={a.id} />
                 <span className={`absolute left-space-sm top-space-sm px-space-sm py-0.5 font-label-caps ${SEV_STYLE[a.sev]}`}>
                   {a.sev} · {a.id}
                 </span>
@@ -191,7 +260,7 @@ export function EmergencyResponsePage() {
 
       <DispatchModal
         open={dispatchFor !== null}
-        incidentId={dispatchFor ?? 'INC-2401'}
+        incidentId={dispatchFor ?? ''}
         onClose={() => setDispatchFor(null)}
         onConfirm={() => {
           if (dispatchFor) setCard(dispatchFor, 'dispatched');
@@ -214,7 +283,7 @@ export function EmergencyResponsePage() {
             </tr>
           </thead>
           <tbody>
-            {mockArchivedIncidents.map((a) => (
+            {archived.map((a) => (
               <tr key={a.id} className="border-t border-outline-variant font-data-mono-md text-on-surface">
                 <td className="px-space-sm py-space-xs">{a.id}</td>
                 <td className="px-space-sm py-space-xs">{a.title}</td>
@@ -229,8 +298,8 @@ export function EmergencyResponsePage() {
 
       <footer className="flex items-center gap-space-md rounded-sm bg-primary-container px-space-md py-space-sm font-data-mono-sm text-secondary-fixed">
         <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
-        <span>COMMAND LINK NOMINAL · 24 STREAMS · DISPATCH QUEUE 3</span>
-        <span className="ml-auto">NYC-METRO-01</span>
+        <span>COMMAND LINK NOMINAL · DISPATCH QUEUE {cards.length}</span>
+        <span className="ml-auto">LIVE GRID</span>
       </footer>
     </div>
   );

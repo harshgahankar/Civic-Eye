@@ -23,7 +23,25 @@ export function CCTVCard({ camera, overlay, children }: CCTVCardProps) {
         <CameraStatus live={camera.live} fps={camera.fps} />
       </div>
       <div className="relative aspect-video bg-primary overflow-hidden">
-        <img src={camera.src} alt={`${camera.id} feed`} className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" loading="lazy" />
+        {camera.src && /\.(mp4|webm|ogg)(\?|$)/i.test(camera.src) ? (
+          <video
+            src={camera.src}
+            className="absolute inset-0 h-full w-full object-cover"
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            aria-label={`${camera.id} feed`}
+          />
+        ) : camera.src ? (
+          <img src={camera.src} alt={`${camera.id} feed`} className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" loading="lazy" />
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-primary-container" aria-label={`${camera.id} no video source`}>
+            <span className="material-symbols-outlined text-[34px] text-slate-500">videocam_off</span>
+            <span className="font-data-mono-sm text-slate-400">{camera.live ? 'SIGNAL PENDING' : 'OFFLINE'}</span>
+          </div>
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-primary/30 via-transparent to-transparent pointer-events-none" />
         <span className="absolute top-2 left-2 w-4 h-4 border-t-2 border-l-2 border-white/80 rounded-tl-sm drop-shadow" />
         <span className="absolute top-2 right-2 w-4 h-4 border-t-2 border-r-2 border-white/80 rounded-tr-sm drop-shadow" />

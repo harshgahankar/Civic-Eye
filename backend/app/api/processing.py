@@ -16,12 +16,16 @@ import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status
-from fastapi.responses import Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi.responses import FileResponse, Response
+from sqlalchemy.orm import Session
 
+from app.api.incidents import IncidentSummary, _to_summary
 from app.core.logging import get_logger
+from app.db.database import get_db
+from app.db.models import Incident as IncidentRow
 from app.schemas.tracking import JobStatus, StartJobRequest, StartJobResponse
 
 logger = get_logger(__name__)
@@ -85,9 +89,16 @@ def _run_pipeline(job: JobStatus, output_path: str) -> None:
         job.frames_processed = result.frames_processed
         job.detections_count = result.detections_count
         job.behavior_events_count = result.behavior_events_count
+        job.incidents_count = result.incidents_count
+        job.confirmed_incidents_count = result.confirmed_incidents_count
+        job.false_alarm_count = result.false_alarm_count
         job.average_fps = result.average_fps
         job.output_path = result.output_path
         job.completed_at = result.completed_at
+        try:
+            job.incident_ids = [i.incident_id for i in result.all_incidents]
+        except Exception:
+            job.incident_ids = []
         if result.error:
             job.error = result.error
 
@@ -146,6 +157,140 @@ def start_video_job(
         source=payload.video_path,
         job_id=job_id,
     )
+
+
+@router.get(
+    "/{job_id}/video",
+    summary="Stream the finished job's tracked video (browser-playable MP4)",
+)
+def get_job_video(
+    job_id: str,
+    download: bool = Query(default=False, description="Set Content-Disposition to attachment"),
+) -> FileResponse:
+    """Stream the annotated output video for inline <video> preview.
+
+    Resolves the stored (possibly relative) output_path against the backend
+    working directory and package layout, so preview works regardless of
+    whether the server was started from backend/ or the repo root.
+    """
+    job = _get_job(job_id)
+    if not job.output_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "VIDEO_NOT_READY", "message": f"Job '{job_id}' has no output video yet"},
+        )
+    stored = Path(job.output_path)
+    candidates: list[Path] = []
+    if stored.is_absolute():
+        candidates.append(stored)
+    else:
+        cwd = Path.cwd()
+        backend_dir = Path(__file__).resolve().parents[2]  # backend/
+        repo_root = backend_dir.parent
+        candidates.extend([
+            cwd / stored,
+            backend_dir / stored,
+            repo_root / stored,
+        ])
+    file: Path | None = None
+    for c in candidates:
+        if c.is_file():
+            file = c
+            break
+    if file is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "VIDEO_NOT_FOUND", "message": f"Output file for job '{job_id}' was not found on disk"},
+        )
+    if file.suffix.lower() != ".mp4":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "VIDEO_NOT_FOUND", "message": "Only .mp4 outputs can be streamed"},
+        )
+    # OpenCV writes mp4v (FMP4), which browsers can't decode. If the output
+    # is still in that codec (e.g. the H.264 replace was blocked because the
+    # file was locked), prefer a playable sibling left by the transcoder:
+    # <stem>_h264.mp4, then <stem>.h264.tmp.mp4.
+    file = _prefer_playable_sibling(file)
+    return FileResponse(
+        path=str(file),
+        media_type="video/mp4",
+        filename=file.name,
+        content_disposition_type="attachment" if download else "inline",
+    )
+
+
+def _prefer_playable_sibling(file: Path) -> Path:
+    """Return a browser-playable sibling of an mp4v output if one exists."""
+    try:
+        import cv2
+
+        cap = cv2.VideoCapture(str(file))
+        fourcc = int(cap.get(cv2.CAP_PROP_FOURCC)).to_bytes(4, "little")
+        cap.release()
+        if fourcc not in (b"FMP4", b"mp4v", b"MP4V"):
+            return file
+    except Exception:
+        return file
+    for sibling in (
+        file.with_name(f"{file.stem}_h264.mp4"),
+        file.with_name(f"{file.stem}.h264.tmp.mp4"),
+    ):
+        if sibling.is_file() and sibling.stat().st_size > 0:
+            logger.info("Serving playable sibling %s for locked mp4v output %s", sibling.name, file.name)
+            return sibling
+    return file
+
+
+@router.get(
+    "/videos/{filename}",
+    summary="Stream a finished pipeline output by filename (durable video URL)",
+)
+def get_output_video(filename: str) -> FileResponse:
+    """Stream an annotated output video by filename.
+
+    Unlike /{job_id}/video (which needs the in-memory job registry), this
+    URL keeps working after restarts — emergency cards use it via the
+    ``output_video`` stamped into incident metadata.
+    """
+    import re
+
+    name = Path(filename).name
+    if not re.fullmatch(r"[A-Za-z0-9._-]+\.mp4", name, flags=re.IGNORECASE):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "VIDEO_NOT_FOUND", "message": "Unknown output video"},
+        )
+    backend_dir = Path(__file__).resolve().parents[2]  # backend/
+    for base in (Path.cwd(), backend_dir, backend_dir.parent):
+        candidate = base / "data" / "videos" / "outputs" / name
+        if candidate.is_file():
+            return FileResponse(
+                path=str(_prefer_playable_sibling(candidate)),
+                media_type="video/mp4",
+                filename=name,
+                content_disposition_type="inline",
+            )
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail={"error": "VIDEO_NOT_FOUND", "message": f"Output video '{name}' was not found"},
+    )
+
+
+@router.get(
+    "/{job_id}/incidents",
+    response_model=List[IncidentSummary],
+    summary="List incidents produced by a processing job",
+)
+def get_job_incidents(job_id: str, db: Session = Depends(get_db)) -> List[IncidentSummary]:
+    """Return incident summaries for every incident the job recorded."""
+    job = _get_job(job_id)
+    ids = list(getattr(job, "incident_ids", []) or [])
+    if not ids:
+        return []
+    rows = db.query(IncidentRow).filter(IncidentRow.incident_id.in_(ids)).all()
+    by_id = {r.incident_id: r for r in rows}
+    return [_to_summary(by_id[i]) for i in ids if i in by_id]
 
 
 @router.get(

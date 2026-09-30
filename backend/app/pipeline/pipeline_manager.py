@@ -7,9 +7,12 @@ End-to-end video processing pipeline:
              ↓
         DetectionEvent list per frame
              ↓
-        BehaviorEngine → BehaviorEvent list
-             ↓
-        Annotated video writer  +  JSONL event log  +  behavior_events.jsonl
+         BehaviorEngine → BehaviorEvent list
+              ↓
+         IncidentEngine → IncidentDetail list
+              ↓
+         Annotated video writer + JSONL logs (events, behavior, incidents)
+         + SQLite persistence (best-effort)
 
 Annotation overlay format:
     CAR #17
@@ -33,12 +36,77 @@ from app.ai.inference import InferenceEngine
 from app.behavior.behavior_engine import BehaviorEngine
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.events import event_types, get_default_bus
+from app.events.publisher import (
+    publish_behavior_event,
+    publish_camera_health,
+    publish_incident_detail,
+)
+from app.intelligence.incident_engine import IncidentEngine
+from app.intelligence.multi_camera import get_fusion_engine
+from app.intelligence.persistence import save_group, upsert_incident
+from app.services.camera_health import get_health_service
 from app.pipeline.frame_processor import FrameProcessor
 from app.pipeline.video_reader import VideoReader, VideoReaderError
 from app.schemas.behavior_event import BehaviorEvent
 from app.schemas.detection import DetectionEvent
+from app.schemas.incident import IncidentDetail
 
 logger = get_logger(__name__)
+
+
+def ensure_browser_compatible_mp4(path: str) -> str:
+    """Transcode an OpenCV-written MP4 (mp4v/FMP4) to H.264 + faststart.
+
+    Browsers (Chrome/Edge) cannot play the MPEG-4 Part 2 codec that
+    cv2.VideoWriter writes with fourcc "mp4v", so the <video> tag shows a
+    black box with 0:00. Re-encoding with libx264 + yuv420p fixes inline
+    preview and keeps the file downloadable. Returns the path of the
+    playable file (normally ``path`` itself).
+
+    If the original file is locked by another process (Windows refuses the
+    atomic replace), the playable copy is kept alongside as
+    ``<stem>_h264.mp4`` and *that* path is returned so the job still points
+    at a previewable video. If ffmpeg is missing the original is kept and a
+    warning is logged.
+    """
+    try:
+        import imageio_ffmpeg
+        import subprocess
+
+        ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+        tmp = str(Path(path).with_suffix(".h264.tmp.mp4"))
+        subprocess.run(
+            [
+                ffmpeg, "-y", "-v", "error",
+                "-i", path,
+                "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                "-crf", "23", "-preset", "veryfast",
+                "-movflags", "+faststart",
+                tmp,
+            ],
+            check=True,
+            timeout=600,
+        )
+        for _ in range(5):
+            try:
+                os.replace(tmp, path)
+                logger.info("Transcoded output to browser-compatible H.264: %s", path)
+                return path
+            except PermissionError:
+                time.sleep(1)
+        # Original is locked (e.g. another process holds it open on Windows):
+        # keep the playable copy under a fresh name and point the job at it.
+        fallback = str(Path(path).with_name(f"{Path(path).stem}_h264.mp4"))
+        os.replace(tmp, fallback)
+        logger.warning(
+            "H.264 replace blocked for %s (file locked) — playable copy kept at %s",
+            path, fallback,
+        )
+        return fallback
+    except Exception as exc:  # ffmpeg missing / transcode failed — keep original
+        logger.warning("H.264 transcode skipped for %s: %s", path, exc)
+    return path
 
 # Annotation colours per class (BGR) — cycles through these
 _PALETTE = [
@@ -57,6 +125,23 @@ def _colour_for(track_id: int) -> tuple[int, int, int]:
     return _PALETTE[track_id % len(_PALETTE)]
 
 
+_health_wired = False
+
+
+def _ensure_health_wiring() -> None:
+    """Attach the health service to the event bus exactly once."""
+    global _health_wired
+    if _health_wired:
+        return
+    _health_wired = True
+    bus = get_default_bus()
+
+    def _on_change(camera_id: str, status: str, payload: dict) -> None:
+        publish_camera_health(bus, camera_id, status, payload)
+
+    get_health_service().set_listener(_on_change)
+
+
 def _draw_annotations(
     frame: np.ndarray,
     events: list[DetectionEvent],
@@ -72,8 +157,8 @@ def _draw_annotations(
         # Bounding box
         cv2.rectangle(annotated, (x1, y1), (x2, y2), colour, 2)
 
-        # Label: "CAR #17\n94%"
-        label_top = f"{ev.class_name.upper()} #{ev.track_id}"
+        # Label: "BAG\n94%" (track IDs are internal-only, not shown)
+        label_top = f"{ev.class_name.upper()}"
         label_bot = f"{ev.confidence * 100:.0f}%"
 
         font = cv2.FONT_HERSHEY_SIMPLEX
@@ -115,15 +200,20 @@ class PipelineResult:
     output_path: Optional[str] = None
     events_path: Optional[str] = None
     behavior_events_path: Optional[str] = None
+    incidents_path: Optional[str] = None
     frames_processed: int = 0
     detections_count: int = 0
     behavior_events_count: int = 0
+    incidents_count: int = 0
+    confirmed_incidents_count: int = 0
+    false_alarm_count: int = 0
     average_fps: float = 0.0
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     error: Optional[str] = None
     all_events: list[DetectionEvent] = field(default_factory=list)
     all_behavior_events: list[BehaviorEvent] = field(default_factory=list)
+    all_incidents: list[IncidentDetail] = field(default_factory=list)
 
 
 class PipelineManager:
@@ -191,10 +281,12 @@ class PipelineManager:
         events_dir.mkdir(parents=True, exist_ok=True)
         events_path = str(events_dir / "events.jsonl")
         behavior_events_path = str(events_dir / "behavior_events.jsonl")
+        incidents_path = str(events_dir / "incidents.jsonl")
 
         result.output_path = output_path
         result.events_path = events_path
         result.behavior_events_path = behavior_events_path
+        result.incidents_path = incidents_path
 
         # ── Open video ────────────────────────────────────────────────────
         try:
@@ -205,12 +297,18 @@ class PipelineManager:
             logger.error("Pipeline failed to open video: %s", exc)
             return result
 
-        # ── Create BehaviorEngine for this job ────────────────────────────
+        # ── Create BehaviorEngine + IncidentEngine for this job ─────────────
         behavior_engine = BehaviorEngine(
             camera_id=camera_id,
             frame_width=reader.width,
             frame_height=reader.height,
         )
+        incident_engine = IncidentEngine(camera_id=camera_id)
+
+        # ── Source health: ONLINE when frames flow (file = pipeline health) ──
+        _ensure_health_wiring()
+        health = get_health_service()
+        health.report_frame(camera_id, fps=reader.fps, frames=0)
 
         # ── Set up video writer ───────────────────────────────────────────
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
@@ -234,6 +332,7 @@ class PipelineManager:
         # ── Main processing loop ──────────────────────────────────────────
         all_events: list[DetectionEvent] = []
         all_behavior_events: list[BehaviorEvent] = []
+        all_incidents: list[IncidentDetail] = []
         t_start = time.perf_counter()
         fps_samples: list[float] = []
         LOG_INTERVAL = 30  # log every N frames
@@ -242,7 +341,81 @@ class PipelineManager:
             with (
                 open(events_path, "w", encoding="utf-8") as ev_file,
                 open(behavior_events_path, "w", encoding="utf-8") as bev_file,
+                open(incidents_path, "w", encoding="utf-8") as inc_file,
             ):
+                bus = get_default_bus()
+                fusion = get_fusion_engine()
+                health = get_health_service()
+                seen_incidents: set[str] = set()
+
+                def _publish_incident(inc: IncidentDetail) -> None:
+                    """Map an incident change onto bus event types."""
+                    iid = inc.incident_id
+                    if inc.status == "CONFIRMED":
+                        if iid not in seen_incidents:
+                            publish_incident_detail(
+                                bus, event_types.INCIDENT_CREATED, inc)
+                        publish_incident_detail(
+                            bus, event_types.INCIDENT_CONFIRMED, inc)
+                    elif inc.status == "FALSE_ALARM":
+                        publish_incident_detail(
+                            bus, event_types.INCIDENT_FALSE_ALARM, inc)
+                    elif iid not in seen_incidents:
+                        publish_incident_detail(
+                            bus, event_types.INCIDENT_CREATED, inc)
+                    else:
+                        publish_incident_detail(
+                            bus, event_types.INCIDENT_UPDATED, inc)
+                    seen_incidents.add(iid)
+
+                def _record_incidents(incidents: list[IncidentDetail]) -> None:
+                    for inc in incidents:
+                        inc_file.write(inc.model_dump_json() + "\n")
+                        all_incidents.append(inc)
+                        logger.info(
+                            "[INCIDENT][%s] %s %s severity=%s confidence=%.2f",
+                            camera_id,
+                            inc.incident_id,
+                            inc.incident_type,
+                            inc.severity,
+                            inc.confidence,
+                        )
+                    # Best-effort SQLite persistence (never breaks the pipeline)
+                    try:
+                        from app.db.database import init_db
+                        init_db()
+                    except Exception:
+                        pass
+                    for inc in incidents:
+                        upsert_incident(
+                            inc, incident_engine.get_history(
+                                inc.incident_id))
+                        _publish_incident(inc)
+                        # Cross-camera fusion for confirmed incidents.
+                        if inc.status == "CONFIRMED":
+                            group = fusion.process_incident(inc)
+                            if group is not None:
+                                save_group(group)
+                                primary = (fusion.get_incident(
+                                    group.primary_incident_id) or inc)
+                                upsert_incident(
+                                    primary, incident_engine.get_history(
+                                        primary.incident_id))
+                                bus.publish(
+                                    event_types.INCIDENT_MERGED,
+                                    {"group_id": group.group_id,
+                                     "primary_incident":
+                                         group.primary_incident_id,
+                                     "members": [
+                                         m.model_dump()
+                                         for m in group.member_incidents],
+                                     "correlation_confidence":
+                                         group.member_incidents[-1]
+                                         .correlation_score},
+                                    source="fusion_engine",
+                                    camera_id=inc.camera_id,
+                                    incident_id=group.primary_incident_id)
+
                 for frame_idx, frame in reader:
                     t_frame_start = time.perf_counter()
                     timestamp = frame_idx / reader.fps
@@ -256,6 +429,7 @@ class PipelineManager:
                     behavior_events = behavior_engine.process_frame(events, timestamp)
                     for bev in behavior_events:
                         bev_file.write(bev.model_dump_json() + "\n")
+                        publish_behavior_event(bus, bev)
                         logger.info(
                             "[BEHAVIOR][%s] %s track_ids=%s score=%.2f",
                             camera_id,
@@ -264,6 +438,12 @@ class PipelineManager:
                             bev.score,
                         )
                     all_behavior_events.extend(behavior_events)
+
+                    # ── Incident intelligence ─────────────────────────────
+                    changed = incident_engine.process_detections(events)
+                    changed += incident_engine.process_behavior_events(
+                        behavior_events)
+                    _record_incidents(changed)
 
                     # Draw annotations
                     annotated = _draw_annotations(frame, events)
@@ -284,6 +464,8 @@ class PipelineManager:
                         recent_fps = (
                             sum(fps_samples[-LOG_INTERVAL:]) / min(len(fps_samples), LOG_INTERVAL)
                         )
+                        health.report_frame(camera_id, fps=recent_fps,
+                                            frames=LOG_INTERVAL)
                         logger.info(
                             "Camera: %s | Frame: %d | FPS: %.1f | "
                             "Detections: %d | Active Tracks: %d | Behavior Events: %d",
@@ -295,12 +477,46 @@ class PipelineManager:
                                 frame_idx, len(all_events), recent_fps, len(events)
                             )
 
+                # ── Expire stale unconfirmed candidates (→ FALSE_ALARM) ────
+                if reader.frame_count > 0:
+                    final_ts = reader.frame_count / reader.fps
+                else:
+                    final_ts = (reader.frame_number / reader.fps
+                                + settings.INCIDENT_EVIDENCE_WINDOW_SECONDS * 3)
+                _record_incidents(incident_engine.sweep(final_ts))
+
         except Exception as exc:
             logger.exception("Pipeline [%s] error at frame %d", job_id, reader.frame_number)
             result.error = str(exc)
+            try:
+                health.report_error(camera_id)
+            except Exception:
+                pass
         finally:
             reader.release()
             writer.release()
+            # OpenCV writes mp4v (FMP4) which browsers can't play — transcode
+            # to H.264 so the frontend <video> preview works. Uses the
+            # returned path: if the original is locked, the playable copy
+            # lives at <stem>_h264.mp4 and the job points there instead.
+            if result.error is None and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                output_path = ensure_browser_compatible_mp4(output_path)
+                result.output_path = output_path
+                # Stamp upload provenance onto this job's incidents so the
+                # frontend can surface the tracked video on emergency cards
+                # and flag accident videos (best-effort; never fails the job).
+                try:
+                    video_name = Path(output_path).name
+                    for inc in all_incidents:
+                        inc.metadata.update({
+                            "job_id": job_id,
+                            "source": "upload",
+                            "output_video": video_name,
+                        })
+                        upsert_incident(
+                            inc, incident_engine.get_history(inc.incident_id))
+                except Exception as exc:
+                    logger.warning("Incident upload-stamp skipped [%s]: %s", job_id, exc)
 
         # ── Final metrics ─────────────────────────────────────────────────
         total_elapsed = time.perf_counter() - t_start
@@ -311,10 +527,17 @@ class PipelineManager:
         result.frames_processed = reader.frame_number
         result.detections_count = len(all_events)
         result.behavior_events_count = len(all_behavior_events)
+        result.incidents_count = len(all_incidents)
+        result.confirmed_incidents_count = len({
+            inc.incident_id for inc in all_incidents
+            if inc.status == "CONFIRMED"})
+        result.false_alarm_count = incident_engine.false_alarm_count + sum(
+            1 for inc in all_incidents if inc.status == "FALSE_ALARM")
         result.average_fps = round(avg_fps, 2)
         result.completed_at = datetime.now(timezone.utc)
         result.all_events = all_events
         result.all_behavior_events = all_behavior_events
+        result.all_incidents = all_incidents
 
         # Verify output file
         if result.error is None:
@@ -322,9 +545,11 @@ class PipelineManager:
                 result.status = "COMPLETED"
                 logger.info(
                     "Pipeline [%s] COMPLETED: %d frames, %d detections, "
-                    "%d behavior events, %.1f avg fps → %s",
+                    "%d behavior events, %d incidents (%d confirmed), "
+                    "%.1f avg fps → %s",
                     job_id, result.frames_processed,
                     result.detections_count, result.behavior_events_count,
+                    result.incidents_count, result.confirmed_incidents_count,
                     result.average_fps, output_path,
                 )
             else:

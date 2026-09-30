@@ -37,9 +37,17 @@ class InferenceEngine:
         image_size: int | None = None,
         tracker_config: str | None = None,
     ) -> None:
+        from app.pipeline.frame_processor import (
+            effective_model_confidence,
+            parse_class_confidence,
+        )
+        model_conf = confidence or effective_model_confidence(
+            settings.AI_CONFIDENCE_THRESHOLD,
+            parse_class_confidence(settings.AI_CLASS_CONFIDENCE),
+        )
         self._tracker = ByteTracker(
             model_name=model_name or settings.YOLO_MODEL,
-            confidence=confidence or settings.AI_CONFIDENCE_THRESHOLD,
+            confidence=model_conf,
             iou=iou or settings.AI_IOU_THRESHOLD,
             device=device or settings.AI_DEVICE,
             image_size=image_size or settings.AI_IMAGE_SIZE,

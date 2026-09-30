@@ -31,13 +31,25 @@ class Settings(BaseSettings):
 
     # ── AI / CV ───────────────────────────────────────────────────────────
     YOLO_MODEL: str = "yolo11n.pt"
-    AI_CONFIDENCE_THRESHOLD: float = 0.35
+    AI_CONFIDENCE_THRESHOLD: float = 0.5
     AI_IOU_THRESHOLD: float = 0.45
     AI_DEVICE: str = "auto"          # "auto" | "cpu" | "cuda" | "cuda:0"
     AI_IMAGE_SIZE: int = 640
     AI_FRAME_SKIP: int = 0           # process every N+1 frames (0 = every frame)
     TRACKER_CONFIG: str = "bytetrack.yaml"
     MAX_FPS: float = 15.0
+    # ── Perception filtering (anti-ghost) ─────────────────────────────────
+    AI_ALLOWED_CLASSES: str = ""     # comma-separated, e.g. "person,car,..."
+                                     # empty = allow every YOLO class
+    AI_MIN_TRACK_AGE: int = 3        # consecutive frames a track must
+                                     # survive before emission (1 = no gating)
+    AI_CLASS_CONFIDENCE: str = ""    # per-class overrides, e.g.
+                                     # "suitcase:0.25,handbag:0.25"
+                                     # (for small/static objects YOLO scores
+                                     # low); empty = global threshold for all
+    AI_CLASS_ALIASES: str = "backpack:bag,suitcase:bag,handbag:bag"
+                                     # normalize confusing sub-labels to one
+                                     # generic name (empty = no renaming)
 
     # ── Behavior Engine ────────────────────────────────────────────────────────
     TRACK_HISTORY_SIZE: int = 30
@@ -52,6 +64,33 @@ class Settings(BaseSettings):
     COLLISION_CONFIRMATION_WINDOW: float = 2.0
     COLLISION_EVENT_COOLDOWN: float = 5.0
     CROWD_DENSITY_ROI: str = ""           # empty = full frame
+
+    # ── Incident Intelligence (Step 4) ─────────────────────────────────────
+    INCIDENT_EVIDENCE_WINDOW_SECONDS: float = 5.0
+    ACCIDENT_MIN_EVIDENCE: int = 3
+    ACCIDENT_CONFIRMATION_THRESHOLD: float = 0.55
+    BAGGAGE_STATIONARY_SECONDS: float = 10.0
+    BAGGAGE_OWNER_DISTANCE_THRESHOLD: float = 120.0  # pixels
+    BAGGAGE_MERGE_DISTANCE: float = 60.0  # px: same-spot flicker tracks merge
+    BAGGAGE_CONFIRMATION_THRESHOLD: float = 0.6
+    CROWD_ANOMALY_MIN_EVIDENCE: int = 5
+    CROWD_ANOMALY_CONFIRMATION_THRESHOLD: float = 0.55
+    CROWD_ANOMALY_MIN_SPAN_SECONDS: float = 1.0  # evidence must persist this long
+    ACCIDENT_MIN_SPAN_SECONDS: float = 0.5       # (frames alone ≠ persistence)
+    INCIDENT_DEDUP_WINDOW_SECONDS: float = 10.0
+    INCIDENT_COOLDOWN_SECONDS: float = 30.0
+    SEVERITY_HIGH_THRESHOLD: float = 0.6
+    SEVERITY_CRITICAL_THRESHOLD: float = 0.85
+
+    # ── Step 5: multi-camera + real-time bus ───────────────────────────────
+    MULTI_CAMERA_ENABLED: bool = True
+    MULTI_CAMERA_TIME_WINDOW_SECONDS: float = 15.0
+    MULTI_CAMERA_CORRELATION_THRESHOLD: float = 0.70
+    MAX_EVENT_HISTORY: int = 1000
+    WEBSOCKET_HEARTBEAT_SECONDS: int = 30
+    CAMERA_OFFLINE_TIMEOUT_SECONDS: float = 10.0
+    CAMERA_DEGRADED_FPS_THRESHOLD: float = 5.0
+    MAX_WEBSOCKET_CLIENTS: int = 100
 
     # ── CORS ──────────────────────────────────────────────────────────────
     CORS_ORIGINS: List[str] = [

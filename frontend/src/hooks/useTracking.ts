@@ -1,26 +1,56 @@
-import { useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import type { Track } from '../types/tracking';
 import { useTrackingStore } from '../store/trackingStore';
+import { backend } from '../services/backend';
 
-const mockTracks: Track[] = [
-  {
-    id: 'TRK-201', label: 'White sedan · DL-8C-4421', cameraId: 'CAM-07', sector: 'Sector C',
-    confidence: 93.1, status: 'active', color: '#436086', updatedAt: '2026-09-30T08:42:10Z',
-    path: [
-      { lat: 28.6095, lng: 77.2125, timestamp: '2026-09-30T08:40:00Z', cameraId: 'CAM-07' },
-      { lat: 28.61, lng: 77.213, timestamp: '2026-09-30T08:42:10Z', cameraId: 'CAM-07' },
-    ],
-  },
-  {
-    id: 'TRK-202', label: 'Individual · blue jacket', cameraId: 'CAM-12', sector: 'Sector D',
-    confidence: 91.4, status: 'monitoring', color: '#ba1a1a', updatedAt: '2026-09-30T08:38:31Z',
-    path: [{ lat: 28.6225, lng: 77.199, timestamp: '2026-09-30T08:38:31Z', cameraId: 'CAM-12' }],
-  },
-];
+/**
+ * Live tracks derived from recent backend behavior events.
+ * Groups envelopes by (camera, first track id); positions are unavailable
+ * (backend tracks in pixel space, not geo) so paths carry event times only.
+ */
+const COLORS = ['#436086', '#ba1a1a', '#0f766e', '#7c3aed', '#b45309'];
 
 export function useTracking() {
   const { activeTrackId, follow, setActiveTrack, setFollow } = useTrackingStore();
-  const tracks = useMemo(() => mockTracks, []);
+  const [tracks, setTracks] = useState<Track[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    backend.recentBehavior(100)
+      .then((events) => {
+        if (cancelled) return;
+        const groups = new Map<string, typeof events>();
+        for (const e of events) {
+          const tid = e.track_ids?.[0] ?? -1;
+          const key = `${e.camera_id}::${tid}`;
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key)!.push(e);
+        }
+        setTracks([...groups.entries()].slice(0, 12).map(([key, evs], n) => {
+          const [cameraId, tid] = key.split('::');
+          const latest = evs[evs.length - 1];
+          return {
+            id: `TRK-${cameraId}-${tid}`,
+            label: `${latest.behavior_type} · track ${tid}`,
+            cameraId,
+            sector: 'Live',
+            confidence: Math.round(latest.score * 1000) / 10,
+            status: 'active' as const,
+            color: COLORS[n % COLORS.length],
+            updatedAt: new Date(latest.timestamp * 1000).toISOString(),
+            path: evs.map((e) => ({
+              lat: 0,
+              lng: 0,
+              timestamp: new Date(e.timestamp * 1000).toISOString(),
+              cameraId: e.camera_id,
+            })),
+          };
+        }));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
   const active = tracks.find((t) => t.id === activeTrackId) ?? tracks[0] ?? null;
   return { tracks, active, activeTrackId, follow, setActiveTrack, setFollow };
 }

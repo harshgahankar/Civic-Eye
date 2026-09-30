@@ -262,7 +262,7 @@ function NotificationsTab() {
 
   const sendTest = () => {
     if (s.notifyEnabled && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-      new Notification('CivicEye — test alert', { body: 'CRITICAL drill · CAM-07 Junction A · conf 94.2%' });
+      new Notification('CivicEye — test alert', { body: 'Notification channel check — no live incident attached.' });
     } else {
       pushToast('Enable browser notifications first.', 'error');
     }

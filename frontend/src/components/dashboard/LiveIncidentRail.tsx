@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Modal from '../common/Modal';
 import Badge from '../common/Badge';
 import { useUiStore } from '../../store/uiStore';
+import { backend } from '../../services/backend';
 
 interface RailIncident {
   id: string;
@@ -14,11 +15,7 @@ interface RailIncident {
   status: string;
 }
 
-const ITEMS: RailIncident[] = [
-  { id: 'INC-2401', title: 'Unattended baggage — Times Sq', severity: 'critical', cam: 'CAM-07', time: '14:02:11Z', conf: '94.2%', status: 'DISPATCHED · EMS/NYPD' },
-  { id: 'INC-2400', title: 'Crowd surge — Herald Sq', severity: 'high', cam: 'CAM-12', time: '13:58:44Z', conf: '87.1%', status: 'ACTIVE MONITORING' },
-  { id: 'INC-2399', title: 'Loitering cluster — Penn Stn', severity: 'medium', cam: 'CAM-03', time: '13:51:02Z', conf: '91.3%', status: 'VERIFICATION PENDING' },
-];
+
 
 const sev: Record<RailIncident['severity'], { dot: string; ring: string }> = {
   critical: { dot: 'bg-error', ring: 'border-l-error' },
@@ -31,7 +28,31 @@ export function LiveIncidentRail() {
   const pushToast = useUiStore((s) => s.pushToast);
   const [acked, setAcked] = useState<Set<string>>(new Set());
   const [quickId, setQuickId] = useState<string | null>(null);
-  const quick = ITEMS.find((i) => i.id === quickId) ?? null;
+  const [items, setItems] = useState<RailIncident[]>([]);
+
+  useEffect(() => {
+    let live = true;
+    backend.incidents(10)
+      .then((rows) => {
+        if (!live) return;
+        setItems(rows
+          .filter((i) => i.status === 'active' || i.status === 'pending' || i.status === 'monitoring')
+          .slice(0, 5)
+          .map((i) => ({
+            id: i.id,
+            title: i.title,
+            severity: i.severity === 'low' ? 'medium' : i.severity,
+            cam: i.cameraId,
+            time: i.timestamp,
+            conf: `${i.confidence.toFixed(1)}%`,
+            status: i.status.toUpperCase(),
+          })));
+      })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
+
+  const quick = items.find((i) => i.id === quickId) ?? null;
 
   const ack = (id: string) => {
     setAcked((p) => new Set(p).add(id));
@@ -50,7 +71,12 @@ export function LiveIncidentRail() {
         </Link>
       </div>
       <ul className="flex flex-1 flex-col gap-2.5">
-        {ITEMS.map((i) => {
+        {items.length === 0 && (
+          <li className="rounded-xl border border-outline-variant bg-surface px-3 py-6 text-center font-body-sm text-on-surface-variant">
+            No active incidents — queue is clear.
+          </li>
+        )}
+        {items.map((i) => {
           const done = acked.has(i.id);
           return (
             <li

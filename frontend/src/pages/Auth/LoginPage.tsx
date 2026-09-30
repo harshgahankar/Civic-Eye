@@ -138,16 +138,9 @@ export function LoginPage() {
             <Button type="submit" icon="login" disabled={busy} className="w-full py-3">
               {busy ? 'VERIFYING…' : 'LOGIN TO CONSOLE'}
             </Button>
-            <button
-              type="button"
-              onClick={() => {
-                setIdentifier('demo@civiceye.gov');
-                setPassword('CivicEye@123');
-              }}
-              className="rounded-xl border border-dashed border-outline-variant px-3 py-2 font-data-mono-sm text-on-surface-variant hover:border-secondary hover:text-secondary transition"
-            >
-              FILL DEMO CREDENTIALS
-            </button>
+            <p className="rounded-xl border border-dashed border-outline-variant px-3 py-2 text-center font-data-mono-sm text-on-surface-variant">
+              No account yet? Register a new operator login below.
+            </p>
           </form>
         ) : (
           <form onSubmit={sendReset} className="flex flex-col gap-4 pt-5">

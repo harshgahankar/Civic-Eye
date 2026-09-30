@@ -5,9 +5,9 @@ export interface SafetyPulseProps {
 }
 
 export function SafetyPulse({
-  score = 87,
-  delta = '+2.4 vs 7d avg',
-  trend = '0,30 15,28 30,24 45,26 60,18 75,20 90,12 105,14 120,8',
+  score = 0,
+  delta = 'no data yet',
+  trend = '',
 }: SafetyPulseProps) {
   return (
     <section className="bg-primary-container rounded-sm p-space-md flex items-center gap-space-md">

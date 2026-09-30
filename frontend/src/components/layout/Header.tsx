@@ -14,7 +14,7 @@ function useClock() {
 
 const ROUTES: { match: RegExp; title: string; crumb: string; icon: string }[] = [
   { match: /^\/command-center/, title: 'Command Center', crumb: 'City overview', icon: 'dashboard' },
-  { match: /^\/(cameras|live-cameras)/, title: 'Live Cameras', crumb: 'CCTV wall · 24 feeds', icon: 'videocam' },
+  { match: /^\/(cameras|live-cameras)/, title: 'Live Cameras', crumb: 'CCTV wall', icon: 'videocam' },
   { match: /^\/incidents\/.+/, title: 'Incident Dossier', crumb: 'Case file', icon: 'folder_open' },
   { match: /^\/analytics/, title: 'Analytics', crumb: 'Trends & KPIs', icon: 'query_stats' },
   { match: /^\/(emergency|alerts)/, title: 'Emergency', crumb: 'Dispatch ops', icon: 'notifications_active' },
@@ -35,12 +35,6 @@ interface Alert {
   time: string;
 }
 
-const INITIAL_ALERTS: Alert[] = [
-  { id: 'ALR-8842', title: 'Multi-vehicle collision — Junction A', meta: 'CAM-07 · conf 94.2%', severity: 'critical', time: '2m' },
-  { id: 'ALR-8841', title: 'Crowd surge — Metro Central', meta: 'CAM-04 · density +34%', severity: 'high', time: '7m' },
-  { id: 'ALR-8839', title: 'Unattended bag — Station Gate 2', meta: 'CAM-12 · dwell 07:18', severity: 'medium', time: '12m' },
-];
-
 const sevDot: Record<Alert['severity'], string> = {
   critical: 'bg-error',
   high: 'bg-amber-500',
@@ -53,8 +47,8 @@ export default function Header({ onMenu, sidebarCollapsed = false }: { onMenu?: 
   const navigate = useNavigate();
   const logout = useAuthStore((s) => s.logout);
   const authUser = useAuthStore((s) => s.user);
-  const displayName = (authUser?.name ?? 'DIR. M. VANCE').toUpperCase();
-  const displayRole = (authUser?.role ?? 'WATCH COMMANDER').toUpperCase();
+  const displayName = (authUser?.name ?? 'OPERATOR').toUpperCase();
+  const displayRole = (authUser?.role ?? 'CONSOLE').toUpperCase();
   const initials = displayName.split(/\s+/).map((w) => w[0]).join('').slice(0, 2);
   const ist = new Date(now.getTime() + 5.5 * 3600 * 1000).toISOString().substring(11, 19);
 
@@ -72,9 +66,28 @@ export default function Header({ onMenu, sidebarCollapsed = false }: { onMenu?: 
   const [scrolled, setScrolled] = useState(false);
   const [mobileSearch, setMobileSearch] = useState(false);
   const [alertsOpen, setAlertsOpen] = useState(false);
-  const [alerts, setAlerts] = useState(INITIAL_ALERTS);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
   const alertsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let live = true;
+    import('../../services/backend').then(({ backend }) =>
+      backend.incidents(20)
+        .then((rows) => {
+          if (!live) return;
+          setAlerts(rows.slice(0, 5).map((i) => ({
+            id: i.id,
+            title: i.title,
+            meta: `${i.cameraId} · conf ${i.confidence.toFixed(1)}%`,
+            severity: i.severity === 'critical' ? 'critical' : i.severity === 'high' ? 'high' : 'medium',
+            time: i.timestamp,
+          })));
+        })
+        .catch(() => {}),
+    );
+    return () => { live = false; };
+  }, []);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);

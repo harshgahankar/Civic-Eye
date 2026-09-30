@@ -1,21 +1,44 @@
+import { useEffect, useState } from 'react';
 import { useUiStore } from '../../store/uiStore';
+import { backend } from '../../services/backend';
 import { downloadCSV, stamp } from '../../utils/actions';
 
-export const TRACK_STAGES = [
-  { cam: 'CAM-07 · JUNCTION A', t: '08:42:10Z', n: 'SUBJECT-442 ACQUIRED' },
-  { cam: 'CAM-08 · JUNCTION B', t: '08:44:02Z', n: 'HANDOFF · VECTOR EAST' },
-  { cam: 'CAM-01 · EXPRESSWAY', t: '08:47:31Z', n: 'RE-ACQUIRED · CONF 0.91' },
-];
+interface TrailStage {
+  cam: string;
+  t: string;
+  n: string;
+}
 
-/** Shared cross-camera trail body. Embedded in Live Cameras + the /tracking view. */
+/** Cross-camera trail built from live backend behavior events. */
 export function TrackingSection() {
   const pushToast = useUiStore((s) => s.pushToast);
+  const [stages, setStages] = useState<TrailStage[]>([]);
+
+  useEffect(() => {
+    let live = true;
+    backend.recentBehavior(60)
+      .then((events) => {
+        if (!live) return;
+        const seen = new Map<string, (typeof events)[number]>();
+        for (const e of events) {
+          const key = `${e.camera_id}::${e.behavior_type}`;
+          if (!seen.has(key)) seen.set(key, e);
+        }
+        setStages([...seen.values()].slice(0, 6).map((e) => ({
+          cam: e.camera_id,
+          t: new Date(e.timestamp * 1000).toISOString().substring(11, 19),
+          n: `${e.behavior_type} · score ${e.score.toFixed(2)}`,
+        })));
+      })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
 
   const exportTrail = () => {
     downloadCSV(
-      `civiceye_trail_subject442_${stamp()}`,
+      `civiceye_trail_${stamp()}`,
       ['STAGE', 'CAMERA', 'TIME', 'EVENT'],
-      TRACK_STAGES.map((s, i) => [`0${i + 1}`, s.cam, s.t, s.n]),
+      stages.map((s, i) => [`0${i + 1}`, s.cam, s.t, s.n]),
     );
     pushToast('Subject trail exported to CSV.', 'success');
   };
@@ -27,8 +50,8 @@ export function TrackingSection() {
           <span className="material-symbols-outlined text-[20px]">route</span>
         </span>
         <div className="min-w-0 flex-1">
-          <p className="font-label-caps text-slate-400">TRACK PANEL · SUBJECT-442</p>
-          <p className="font-data-mono-md text-white">STATE: HELD · 96 FRAMES · 3 CAMERAS</p>
+          <p className="font-label-caps text-slate-400">TRACK PANEL · LIVE BEHAVIOR TRAIL</p>
+          <p className="font-data-mono-md text-white">STATE: TRACKING · {stages.length} STAGES</p>
         </div>
         <button
           type="button"
@@ -39,21 +62,24 @@ export function TrackingSection() {
           EXPORT TRAIL
         </button>
       </div>
-      <ol className="flex flex-col gap-2">
-        {TRACK_STAGES.map((s, i) => (
-          <li key={s.cam} className="flex items-center gap-3 rounded-xl border border-outline-variant bg-surface px-3.5 py-3 transition hover:shadow-card">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 font-data-mono-md font-bold text-secondary">0{i + 1}</span>
-            <div className="min-w-0">
-              <p className="truncate font-label-caps text-on-surface">{s.cam}</p>
-              <p className="truncate font-data-mono-sm text-on-surface-variant">{s.t} · {s.n}</p>
-            </div>
-            {i < TRACK_STAGES.length - 1 && <span className="material-symbols-outlined ml-auto text-on-surface-variant">arrow_downward</span>}
-          </li>
-        ))}
-      </ol>
-      <p className="rounded-xl border border-outline-variant bg-surface-container-low px-4 py-2.5 font-data-mono-sm text-on-surface-variant">
-        CAMERA HISTORY · CAM-07 → CAM-08 → CAM-01 · GAP 0 FRAMES
-      </p>
+      {stages.length === 0 ? (
+        <p className="rounded-xl border border-outline-variant bg-surface px-4 py-6 text-center font-body-sm text-on-surface-variant">
+          No behavior trail yet — run a processing job to populate cross-camera events.
+        </p>
+      ) : (
+        <ol className="flex flex-col gap-2">
+          {stages.map((s, i) => (
+            <li key={`${s.cam}-${s.t}-${i}`} className="flex items-center gap-3 rounded-xl border border-outline-variant bg-surface px-3.5 py-3 transition hover:shadow-card">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 font-data-mono-md font-bold text-secondary">0{i + 1}</span>
+              <div className="min-w-0">
+                <p className="truncate font-label-caps text-on-surface">{s.cam}</p>
+                <p className="truncate font-data-mono-sm text-on-surface-variant">{s.t} · {s.n}</p>
+              </div>
+              {i < stages.length - 1 && <span className="material-symbols-outlined ml-auto text-on-surface-variant">arrow_downward</span>}
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }

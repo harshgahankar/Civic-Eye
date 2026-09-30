@@ -11,7 +11,7 @@ interface IncidentState {
 }
 
 export const useIncidentStore = create<IncidentState>((set) => ({
-  selectedId: 'INC-1042',
+  selectedId: null,
   severityFilter: 'all',
   statusFilter: 'all',
   setSelected: (id) => set({ selectedId: id }),

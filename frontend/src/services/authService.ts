@@ -37,20 +37,11 @@ function loadUsers(): StoredUser[] {
     const raw = localStorage.getItem(USERS_KEY);
     if (raw) return JSON.parse(raw) as StoredUser[];
   } catch {
-    /* corrupted store -> reseed below */
+    /* corrupted store -> start empty below */
   }
-  const seed: StoredUser[] = [
-    {
-      id: 'u-demo',
-      name: 'Demo Commander',
-      email: 'demo@civiceye.gov',
-      phone: '+91-98200-12345',
-      organization: 'Metro Command',
-      role: 'Watch Commander',
-      authorizedId: 'CIVIC-DEM001',
-      password: 'CivicEye@123',
-    },
-  ];
+  // No seeded accounts: operators register their own login (stored locally
+  // until server-side auth lands). Never ship known passwords.
+  const seed: StoredUser[] = [];
   try {
     localStorage.setItem(USERS_KEY, JSON.stringify(seed));
   } catch {
