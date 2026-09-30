@@ -2,12 +2,12 @@ import KPIItem from './KPIItem';
 
 export function KPIBar() {
   return (
-    <section aria-label="Key metrics" className="grid grid-cols-2 md:grid-cols-5 gap-space-sm bg-surface-container-lowest border border-outline-variant rounded-sm p-space-sm">
-      <KPIItem label="ACTIVE CAMERAS" value="24" sub="ALL FEEDS NOMINAL" tone="ok" />
-      <KPIItem label="OPEN INCIDENTS" value="03" sub="2 HIGH · 1 MEDIUM" />
-      <KPIItem label="CRITICAL ALERT" value="01" sub="CAM-07 · TIMES SQ" tone="critical" />
-      <KPIItem label="AI CONFIDENCE" value="98.2%" sub="VISION STACK v4" tone="ok" />
-      <KPIItem label="PIPELINE LATENCY" value="1.4s" sub="DETECT → DISPATCH" />
+    <section aria-label="Key metrics" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+      <KPIItem label="ACTIVE CAMERAS" value="24" sub="All feeds nominal" tone="ok" icon="videocam" trend="▲ 100%" />
+      <KPIItem label="OPEN INCIDENTS" value="03" sub="2 high · 1 medium" icon="warning" />
+      <KPIItem label="CRITICAL ALERT" value="01" sub="CAM-07 · Times Sq" tone="critical" icon="priority_high" />
+      <KPIItem label="AI CONFIDENCE" value="98.2%" sub="Vision stack v4" tone="ok" icon="psychology" trend="▲ 0.4%" />
+      <KPIItem label="PIPELINE LATENCY" value="1.4s" sub="Detect → dispatch" icon="bolt" trend="▼ 0.2s" />
     </section>
   );
 }

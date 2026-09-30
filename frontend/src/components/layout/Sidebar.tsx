@@ -1,81 +1,214 @@
 import { NavLink } from 'react-router-dom';
 
-const BRAND_IMG =
-  'https://lh3.googleusercontent.com/aida/AEtjO1VFD_4BV2xF-ScePrH6xlFr52SaHp5DmcI5DH0cmCAKCT9i0zZNZbZnYkh_9mlqJcfgFxnjLV_SbKgY8Z7LNm1eZ6tT1KiscSqgvjrS-v5I9AscZKZlWaaloMvLfwInEtJqFBENgUsqDLnTYtps8T-o3VMoGuZAPBum6uwhAq6lpaM2ZBkbIDdYknIqa0ywq4C5j9fRymHOFd80SFsOkkoEwZBqzfh0Y6DSC9B2FSxJNNS3deNWc07_mBY';
+interface NavItem {
+  to: string;
+  label: string;
+  icon: string;
+  desc: string;
+  badge?: string;
+  alert?: boolean;
+}
 
-const NAV = [
-  { to: '/command-center', label: 'Command Center', icon: 'dashboard' },
-  { to: '/cameras', label: 'Live Cameras', icon: 'videocam' },
-  { to: '/incidents', label: 'Incidents', icon: 'warning' },
-  { to: '/map', label: 'City Map', icon: 'explore' },
-  { to: '/analytics', label: 'Analytics', icon: 'query_stats' },
-  { to: '/emergency', label: 'Emergency', icon: 'notifications_active' },
+const OPERATIONS: NavItem[] = [
+  { to: '/command-center', label: 'Command Center', icon: 'dashboard', desc: 'City overview' },
+  { to: '/cameras', label: 'Live Cameras', icon: 'videocam', desc: '24 feeds' },
+  { to: '/incidents', label: 'Incidents', icon: 'warning', desc: 'Active queue', badge: '3' },
+  { to: '/map', label: 'City Map', icon: 'explore', desc: 'Geospatial' },
+  { to: '/analytics', label: 'Analytics', icon: 'query_stats', desc: 'Trends & KPIs' },
+  { to: '/emergency', label: 'Emergency', icon: 'notifications_active', desc: 'Dispatch', badge: '1', alert: true },
 ];
 
-const TELEMETRY = ['VISION', 'TRACKING', 'ALERT', 'DATABASE'];
+const INTELLIGENCE: NavItem[] = [
+  { to: '/ai-verification', label: 'AI Verification', icon: 'verified', desc: 'Model review' },
+  { to: '/tracking', label: 'Tracking', icon: 'route', desc: 'Subject trails' },
+  { to: '/crowd', label: 'Crowd Intel', icon: 'groups', desc: 'Density monitor' },
+  { to: '/baggage', label: 'Baggage', icon: 'luggage', desc: 'Unattended items' },
+];
 
-export default function Sidebar() {
+const SYSTEM: NavItem[] = [
+  { to: '/resources', label: 'Resources', icon: 'inventory_2', desc: 'Units & assets' },
+  { to: '/settings', label: 'Settings', icon: 'settings', desc: 'Console prefs' },
+];
+
+interface Props {
+  mobileOpen?: boolean;
+  onClose?: () => void;
+  collapsed?: boolean;
+  onToggle?: () => void;
+}
+
+function NavGroup({
+  title,
+  items,
+  collapsed,
+  onNavigate,
+}: {
+  title: string;
+  items: NavItem[];
+  collapsed: boolean;
+  onNavigate?: () => void;
+}) {
   return (
-    <aside className="fixed left-0 top-0 w-[280px] h-screen bg-primary-container z-50 flex flex-col justify-between border-r border-outline/20">
-      <div>
-        <div className="flex items-center gap-space-sm px-space-lg pt-space-lg pb-space-md">
-          <img src={BRAND_IMG} alt="CivicEye mark" className="w-10 h-10 rounded-sm object-cover" />
-          <div>
-            <h1 className="font-headline-md text-on-primary tracking-wide">CIVICEYE</h1>
-            <p className="font-label-caps text-secondary-fixed-dim">
-              AI-POWERED PUBLIC SAFETY INTELLIGENCE
-            </p>
-          </div>
-        </div>
-        <p className="px-space-lg font-data-mono-sm text-on-primary-container">
-          MONITOR · DETECT · RESPOND
-        </p>
-        <nav className="mt-space-lg px-space-sm">
-          <p className="px-space-sm pb-space-sm font-label-caps text-on-primary-container">
-            Tactical Routing
-          </p>
-          <ul className="flex flex-col gap-1">
-            {NAV.map((n) => (
-              <li key={n.to}>
-                <NavLink
-                  to={n.to}
-                  className={({ isActive }) =>
-                    `flex items-center gap-space-sm px-space-sm py-space-sm font-data-mono-md border-l-2 transition-colors ${
-                      isActive
-                        ? 'bg-secondary text-on-primary border-secondary-fixed font-semibold'
-                        : 'text-on-primary-container border-transparent hover:bg-secondary/40'
-                    }`
-                  }
-                >
-                  <span className="material-symbols-outlined text-lg">{n.icon}</span>
-                  {n.label}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
-        </nav>
-      </div>
-      <div className="px-space-lg pb-space-lg">
-        <p className="font-label-caps text-on-primary-container pb-space-sm">SYSTEM STATUS</p>
-        <ul className="flex flex-col gap-1">
-          {TELEMETRY.map((t) => (
-            <li
-              key={t}
-              className="flex items-center justify-between font-data-mono-sm text-secondary-fixed"
+    <div>
+      {!collapsed && <p className="px-3 pb-1.5 pt-3 font-label-caps text-on-primary-container first:pt-0">{title}</p>}
+      {collapsed && <div className="mx-3 mb-1.5 border-t border-white/10 first:hidden" />}
+      <ul className="flex flex-col gap-1">
+        {items.map((n) => (
+          <li key={n.to}>
+            <NavLink
+              to={n.to}
+              onClick={onNavigate}
+              title={collapsed ? n.label : undefined}
+              className={({ isActive }) =>
+                `group flex items-center gap-3 rounded-xl transition-all ${
+                  collapsed ? 'justify-center px-0 py-2' : 'px-2.5 py-2'
+                } ${
+                  isActive
+                    ? 'bg-secondary text-on-primary shadow-pop'
+                    : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                }`
+              }
             >
-              <span>{t}</span>
-              <span className="flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
-                ONLINE
-              </span>
-            </li>
-          ))}
-        </ul>
-        <div className="mt-space-md flex items-center justify-between border-t border-outline/20 pt-space-sm font-data-mono-sm text-on-primary-container">
-          <span>LATENCY 18ms</span>
-          <span>CLUSTER NYC-METRO-01</span>
+              {({ isActive }) => (
+                <>
+                  <span
+                    className={`relative flex h-9 w-9 items-center justify-center rounded-lg shrink-0 transition-colors ${
+                      isActive ? 'bg-white/20' : 'bg-white/5 group-hover:bg-white/10'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[20px]">{n.icon}</span>
+                    {collapsed && n.badge && (
+                      <span
+                        className={`absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full px-0.5 font-data-mono-sm font-bold ${
+                          n.alert ? 'bg-error text-white' : 'bg-secondary-fixed text-on-secondary-fixed'
+                        }`}
+                      >
+                        {n.badge}
+                      </span>
+                    )}
+                  </span>
+                  {!collapsed && (
+                    <>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-data-mono-md font-semibold">{n.label}</span>
+                        <span className={`block truncate font-data-mono-sm ${isActive ? 'text-blue-100' : 'text-slate-400'}`}>
+                          {n.desc}
+                        </span>
+                      </span>
+                      {n.badge && (
+                        <span
+                          className={`shrink-0 rounded-full px-1.5 py-0.5 font-data-mono-sm font-bold ${
+                            n.alert ? 'bg-error text-white' : isActive ? 'bg-white/20 text-white' : 'bg-white/10 text-slate-200'
+                          }`}
+                        >
+                          {n.badge}
+                        </span>
+                      )}
+                      {isActive && !n.badge && <span className="h-5 w-1 shrink-0 rounded-full bg-white/70" />}
+                    </>
+                  )}
+                </>
+              )}
+            </NavLink>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function SidebarBody({
+  collapsed,
+  onToggle,
+  onNavigate,
+}: {
+  collapsed: boolean;
+  onToggle?: () => void;
+  onNavigate?: () => void;
+}) {
+  return (
+    <div className="flex h-full flex-col">
+      {/* Brand */}
+      <div className={`border-b border-white/10 pb-4 pt-5 ${collapsed ? 'px-0' : 'px-4'}`}>
+        <div className={`flex items-center gap-3 ${collapsed ? 'justify-center' : ''}`}>
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-secondary to-blue-800 shadow-pop shrink-0">
+            <span className="material-symbols-outlined text-on-primary text-xl">visibility</span>
+          </div>
+          {!collapsed && (
+            <div className="min-w-0 flex-1">
+              <h1 className="font-headline-md text-on-primary tracking-wide leading-none">CIVICEYE</h1>
+              <p className="font-label-caps text-on-primary-container mt-1">PUBLIC SAFETY INTEL</p>
+            </div>
+          )}
+          {!collapsed && onToggle && (
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-label="Collapse sidebar"
+              className="hidden rounded-lg p-1.5 text-slate-400 hover:bg-white/10 hover:text-white transition lg:block"
+            >
+              <span className="material-symbols-outlined text-[18px]">chevron_left</span>
+            </button>
+          )}
         </div>
+        {collapsed && onToggle && (
+          <div className="hidden justify-center pt-3 lg:flex">
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-label="Expand sidebar"
+              className="rounded-lg p-1.5 text-slate-400 hover:bg-white/10 hover:text-white transition"
+            >
+              <span className="material-symbols-outlined text-[18px]">chevron_right</span>
+            </button>
+          </div>
+        )}
+        {!collapsed && (
+          <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/5 border border-white/10 px-2.5 py-1 font-data-mono-sm text-blue-200">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            MONITOR · DETECT · RESPOND
+          </p>
+        )}
       </div>
-    </aside>
+
+      {/* Nav */}
+      <nav className={`flex-1 overflow-y-auto py-3 ${collapsed ? 'px-2' : 'px-3'} pb-5`} aria-label="Primary">
+        <NavGroup title="OPERATIONS" items={OPERATIONS} collapsed={collapsed} onNavigate={onNavigate} />
+        <NavGroup title="INTELLIGENCE" items={INTELLIGENCE} collapsed={collapsed} onNavigate={onNavigate} />
+        <NavGroup title="SYSTEM" items={SYSTEM} collapsed={collapsed} onNavigate={onNavigate} />
+      </nav>
+    </div>
+  );
+}
+
+export default function Sidebar({ mobileOpen = false, onClose, collapsed = false, onToggle }: Props) {
+  return (
+    <>
+      {/* Desktop */}
+      <aside
+        className={`fixed left-0 top-0 hidden h-screen bg-primary-container z-50 lg:block shadow-pop transition-[width] duration-300 ${
+          collapsed ? 'w-[84px]' : 'w-[280px]'
+        }`}
+      >
+        <SidebarBody collapsed={collapsed} onToggle={onToggle} />
+      </aside>
+      {/* Mobile drawer */}
+      {mobileOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <div className="absolute inset-0 bg-primary/60 backdrop-blur-sm anim-fade-up" onClick={onClose} />
+          <aside className="absolute left-0 top-0 h-full w-[300px] bg-primary-container shadow-pop anim-scale-in overflow-y-auto">
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close menu"
+              className="absolute right-3 top-4 z-10 rounded-lg p-1.5 text-slate-300 hover:bg-white/10 hover:text-white"
+            >
+              <span className="material-symbols-outlined">close</span>
+            </button>
+            <SidebarBody collapsed={false} onNavigate={onClose} />
+          </aside>
+        </div>
+      )}
+    </>
   );
 }

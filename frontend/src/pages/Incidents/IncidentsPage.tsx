@@ -24,38 +24,47 @@ export function IncidentsPage() {
   const toggleLayer = (l: string) => setLayers((p) => ({ ...p, [l]: !p[l] }));
 
   return (
-    <div className="flex flex-col gap-space-lg">
-      <header className="flex flex-wrap items-end gap-space-md">
+    <div className="flex flex-col gap-5">
+      <header className="flex flex-wrap items-end gap-4">
         <div>
-          <p className="font-label-caps text-on-surface-variant">CITY GRID &middot; LIVE FEED</p>
-          <h1 className="font-headline-xl text-on-surface">GEOGRAPHIC INTELLIGENCE</h1>
+          <p className="eyebrow">City grid &middot; Live feed</p>
+          <h1 className="font-headline-xl text-on-surface tracking-tight">Geographic Intelligence</h1>
         </div>
-        <span className="ml-auto font-data-mono-sm rounded-full border border-secondary px-space-sm py-1 text-secondary">
+        <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-secondary/40 bg-blue-50 px-3 py-1 font-data-mono-sm font-semibold text-secondary">
+          <span className="material-symbols-outlined text-[14px]">grid_on</span>
           GRID RES 40M
         </span>
       </header>
 
       {/* Filter tabs + layer checkboxes */}
-      <div className="flex flex-wrap items-center gap-space-md">
-        <div className="flex flex-wrap gap-space-sm" role="tablist" aria-label="Incident filters">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Incident filters">
           {TABS.map((t) => (
             <button
               key={t}
+              type="button"
               role="tab"
               aria-selected={tab === t}
               onClick={() => setTab(t)}
-              className={`font-label-caps rounded-sm border px-space-sm py-1 ${
-                tab === t ? 'border-secondary bg-secondary text-on-primary' : 'border-outline text-on-surface-variant'
+              className={`rounded-lg border px-3 py-1.5 font-label-caps transition ${
+                tab === t
+                  ? 'border-secondary bg-secondary text-on-primary shadow-card'
+                  : 'border-outline-variant bg-surface-container-lowest text-on-surface-variant hover:border-secondary hover:text-secondary'
               }`}
             >
               {t}
             </button>
           ))}
         </div>
-        <div className="ml-auto flex flex-wrap gap-space-sm">
+        <div className="ml-auto flex flex-wrap gap-2">
           {LAYERS.map((l) => (
-            <label key={l} className="flex items-center gap-1 font-data-mono-sm text-on-surface-variant">
-              <input type="checkbox" checked={!!layers[l]} onChange={() => toggleLayer(l)} />
+            <label key={l} className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-1.5 font-data-mono-sm text-on-surface-variant hover:border-secondary transition">
+              <input
+                type="checkbox"
+                checked={!!layers[l]}
+                onChange={() => toggleLayer(l)}
+                className="h-3.5 w-3.5 accent-[#2563eb]"
+              />
               {l}
             </label>
           ))}
@@ -63,30 +72,30 @@ export function IncidentsPage() {
       </div>
 
       {/* Main grid */}
-      <div className="grid grid-cols-1 gap-space-md xl:grid-cols-12">
-        <div className="xl:col-span-8">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+        <div className="min-w-0 xl:col-span-8">
           <IntelligenceMap interactive />
-          <p className="pt-space-xs font-data-mono-sm text-on-surface-variant">
+          <p className="pt-2 font-data-mono-sm text-on-surface-variant">
             FILTER {tab} &middot; LAYERS {Object.entries(layers).filter(([, v]) => v).map(([k]) => k).join(', ') || 'NONE'}
           </p>
         </div>
-        <div className="flex flex-col gap-space-md xl:col-span-4">
-          <section className="rounded-sm border border-outline-variant bg-surface-container-lowest p-space-md">
-            <p className="font-label-caps text-on-surface-variant">SECTOR INTEL DISTRIBUTION</p>
-            <ul className="flex flex-col gap-space-xs pt-space-sm">
+        <div className="flex min-w-0 flex-col gap-4 xl:col-span-4">
+          <section className="card card-pad">
+            <p className="eyebrow">Sector intel distribution</p>
+            <ul className="flex flex-col gap-2.5 pt-3">
               {DISTRIBUTION.map((d) => (
-                <li key={d.k} className="flex items-center gap-space-sm">
-                  <span className="w-44 font-data-mono-sm text-on-surface">{d.k}</span>
-                  <span className="h-3 flex-1 overflow-hidden rounded-full bg-surface-container-high">
-                    <span className="block h-full bg-secondary" style={{ width: `${d.v}%` }} />
+                <li key={d.k} className="flex items-center gap-2.5">
+                  <span className="w-40 shrink-0 truncate font-data-mono-sm text-on-surface">{d.k}</span>
+                  <span className="h-2.5 flex-1 overflow-hidden rounded-full bg-surface-container-high">
+                    <span className="block h-full rounded-full bg-gradient-to-r from-secondary to-blue-400" style={{ width: `${d.v}%` }} />
                   </span>
-                  <span className="font-data-mono-sm text-on-surface-variant">{d.v}</span>
+                  <span className="w-8 text-right font-data-mono-sm tabular-nums text-on-surface-variant">{d.v}</span>
                 </li>
               ))}
             </ul>
           </section>
-          <section className="overflow-x-auto rounded-sm border border-outline-variant bg-surface-container-lowest">
-            <p className="font-label-caps px-space-sm pt-space-sm text-on-surface-variant">ACTIVE UNITS</p>
+          <section className="card overflow-hidden">
+            <p className="eyebrow px-4 pt-4">Active units</p>
             <table className="w-full text-left">
               <tbody>
                 {mockUnits.map((u) => (
@@ -98,9 +107,12 @@ export function IncidentsPage() {
         </div>
       </div>
 
-      <footer className="flex flex-wrap items-center gap-space-md rounded-sm bg-primary-container px-space-md py-space-sm font-data-mono-sm text-secondary-fixed">
+      <footer className="flex flex-wrap items-center gap-3 rounded-xl bg-primary-container px-4 py-3 font-data-mono-sm text-slate-300 shadow-card">
         <span>EXPORT DOSSIER &middot; GEOJSON / PDF / CSV</span>
-        <button className="ml-auto font-label-caps bg-secondary px-space-md py-1 text-on-primary rounded-sm">EXPORT</button>
+        <button type="button" className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-secondary px-4 py-1.5 font-label-caps text-on-primary hover:bg-blue-700 active:scale-[0.98] transition">
+          <span className="material-symbols-outlined text-[16px]">file_download</span>
+          EXPORT
+        </button>
       </footer>
     </div>
   );

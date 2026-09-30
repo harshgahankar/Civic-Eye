@@ -15,8 +15,8 @@ export function DetectionOverlay({ boxes }: { boxes?: Box[] }) {
   return (
     <div className="absolute inset-0 pointer-events-none">
       {defaults.map((b) => (
-        <div key={b.label} className={`absolute border-2 ${b.color ?? 'border-secondary-fixed'}`} style={{ left: b.x, top: b.y, width: b.w, height: b.h }}>
-          <span className="absolute -top-5 left-0 font-data-mono-sm bg-primary text-on-primary px-1">{b.label}</span>
+        <div key={b.label} className={`absolute rounded-[3px] border-2 ${b.color ?? 'border-secondary-fixed'}`} style={{ left: b.x, top: b.y, width: b.w, height: b.h }}>
+          <span className="absolute -top-6 left-0 whitespace-nowrap rounded-md bg-primary/90 px-1.5 py-0.5 font-data-mono-sm text-white shadow-pop backdrop-blur-sm">{b.label}</span>
         </div>
       ))}
     </div>

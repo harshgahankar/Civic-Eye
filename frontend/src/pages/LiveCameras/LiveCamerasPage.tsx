@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import CCTVGrid from '../../components/cctv/CCTVGrid';
 import CCTVCard, { type CameraFeed } from '../../components/cctv/CCTVCard';
 import DetectionOverlay from '../../components/cctv/DetectionOverlay';
 import { mockDetections } from '../../data/mockDetections';
@@ -36,41 +35,49 @@ const FEEDS: CameraFeed[] = [
 ];
 
 const SECTORS = ['ALL SECTORS', 'Sector A', 'Sector B', 'Sector C', 'Sector D'];
+const PAGE_SIZE = 5;
 
 export function LiveCamerasPage() {
   const [sector, setSector] = useState(SECTORS[0]);
+  const [page, setPage] = useState(0);
+  const pageCount = Math.max(1, Math.ceil(mockDetections.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const rows = mockDetections.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
 
   return (
-    <div className="flex flex-col gap-space-lg">
+    <div className="flex flex-col gap-5">
       {/* Archival banner strip */}
-      <div className="bg-primary-container px-space-md py-space-xs font-data-mono-sm text-secondary-fixed">
+      <div className="rounded-xl bg-primary-container px-4 py-2 font-data-mono-sm text-slate-300">
         ARCHIVE REEL 2026-09-30 &middot; 189 TARGETS INDEXED &middot; RETENTION 90D &middot; CHAIN-OF-CUSTODY SEALED
       </div>
 
       {/* Page header */}
-      <header className="flex flex-wrap items-end gap-space-md">
+      <header className="flex flex-wrap items-end gap-4">
         <div>
-          <p className="font-label-caps text-on-surface-variant">CCTV WALL &middot; SECTOR GRID</p>
-          <h1 className="font-headline-xl text-on-surface">LIVE SURVEILLANCE</h1>
-          <p className="font-data-mono-md text-on-surface-variant pt-space-xs">
-            189 targets &middot; <span className="text-error">01 critical</span>
+          <p className="eyebrow">CCTV wall &middot; Sector grid</p>
+          <h1 className="font-headline-xl text-on-surface tracking-tight">Live Surveillance</h1>
+          <p className="pt-1 font-data-mono-md text-on-surface-variant">
+            189 targets &middot; <span className="font-semibold text-error">01 critical</span>
           </p>
         </div>
-        <button className="ml-auto font-label-caps bg-secondary px-space-md py-2 text-on-primary rounded-sm">
+        <button type="button" className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-secondary px-4 py-2 font-label-caps text-on-secondary shadow-card hover:bg-blue-700 active:scale-[0.98] transition">
+          <span className="material-symbols-outlined text-[16px]">file_download</span>
           EXPORT
         </button>
       </header>
 
       {/* Sector filter toolbar */}
-      <div className="flex flex-wrap gap-space-sm" role="toolbar" aria-label="Sector filter">
+      <div className="flex flex-wrap gap-2" role="toolbar" aria-label="Sector filter">
         {SECTORS.map((s) => (
           <button
             key={s}
+            type="button"
             onClick={() => setSector(s)}
-            className={`font-label-caps rounded-sm border px-space-sm py-1 ${
+            aria-pressed={sector === s}
+            className={`rounded-lg border px-3 py-1.5 font-label-caps transition ${
               sector === s
-                ? 'border-secondary bg-secondary text-on-primary'
-                : 'border-outline text-on-surface-variant'
+                ? 'border-secondary bg-secondary text-on-primary shadow-card'
+                : 'border-outline-variant bg-surface-container-lowest text-on-surface-variant hover:border-secondary hover:text-secondary'
             }`}
           >
             {s}
@@ -79,7 +86,7 @@ export function LiveCamerasPage() {
       </div>
 
       {/* 2x2 CCTV wall */}
-      <div className="grid grid-cols-1 gap-space-md md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <CCTVCard
           camera={FEEDS[0]}
           overlay={
@@ -91,10 +98,10 @@ export function LiveCamerasPage() {
             />
           }
         >
-          <p className="absolute bottom-1 left-1 bg-error px-1 font-data-mono-sm text-on-error">
+          <p className="absolute bottom-2 left-2 rounded-md bg-error px-1.5 py-0.5 font-data-mono-sm text-on-error shadow-pop">
             CRITICAL &middot; COLLISION &middot; LANES 1-2 BLOCKED
           </p>
-          <p className="absolute bottom-1 right-1 bg-primary/80 px-1 font-data-mono-sm text-on-primary">
+          <p className="absolute bottom-2 right-2 rounded-md bg-primary/80 px-1.5 py-0.5 font-data-mono-sm text-white backdrop-blur-sm">
             30FPS &middot; H.265 &middot; 4K
           </p>
         </CCTVCard>
@@ -106,7 +113,7 @@ export function LiveCamerasPage() {
             />
           }
         >
-          <p className="absolute bottom-1 left-1 bg-primary/80 px-1 font-data-mono-sm text-on-primary">
+          <p className="absolute bottom-2 left-2 rounded-md bg-primary/80 px-1.5 py-0.5 font-data-mono-sm text-white backdrop-blur-sm">
             CROWD SURGE &middot; DENSITY +42%
           </p>
         </CCTVCard>
@@ -118,50 +125,61 @@ export function LiveCamerasPage() {
             />
           }
         >
-          <p className="absolute bottom-1 left-1 bg-primary/80 px-1 font-data-mono-sm text-on-primary">
+          <p className="absolute bottom-2 left-2 rounded-md bg-primary/80 px-1.5 py-0.5 font-data-mono-sm text-white backdrop-blur-sm">
             BAGGAGE WATCH &middot; DWELL 6 MIN
           </p>
         </CCTVCard>
         <CCTVCard camera={FEEDS[3]}>
-          <p className="absolute bottom-1 left-1 bg-primary/80 px-1 font-data-mono-sm text-on-primary">
+          <p className="absolute bottom-2 left-2 rounded-md bg-primary/80 px-1.5 py-0.5 font-data-mono-sm text-white backdrop-blur-sm">
             ARTERIAL FLOW &middot; NOMINAL
           </p>
         </CCTVCard>
       </div>
-      <div className="hidden">
-        <CCTVGrid cameras={FEEDS} />
-      </div>
 
       {/* Detection telemetry table */}
-      <section className="overflow-x-auto rounded-sm border border-outline-variant bg-surface-container-lowest">
-        <table className="w-full text-left">
+      <section className="table-shell" aria-label="Detection telemetry">
+        <table>
           <thead>
-            <tr className="font-label-caps text-on-surface-variant">
-              <th className="px-space-sm py-space-xs">DETECTION</th>
-              <th className="px-space-sm py-space-xs">CAMERA</th>
-              <th className="px-space-sm py-space-xs">LABEL</th>
-              <th className="px-space-sm py-space-xs">CONF</th>
-              <th className="px-space-sm py-space-xs">ACTION</th>
+            <tr>
+              <th>DETECTION</th>
+              <th>CAMERA</th>
+              <th>LABEL</th>
+              <th>CONF</th>
+              <th>ACTION</th>
             </tr>
           </thead>
-          <tbody>
-            {mockDetections.slice(0, 5).map((d) => (
-              <tr key={d.id} className="border-t border-outline-variant font-data-mono-md text-on-surface">
-                <td className="px-space-sm py-space-xs">{d.id}</td>
-                <td className="px-space-sm py-space-xs">{d.cameraId}</td>
-                <td className="px-space-sm py-space-xs">{d.label}</td>
-                <td className="px-space-sm py-space-xs">{d.confidence.toFixed(1)}%</td>
-                <td className="px-space-sm py-space-xs font-label-caps text-secondary">{d.action}</td>
+          <tbody className="font-data-mono-md text-on-surface">
+            {rows.map((d) => (
+              <tr key={d.id}>
+                <td className="font-semibold">{d.id}</td>
+                <td>{d.cameraId}</td>
+                <td>{d.label}</td>
+                <td className="tabular-nums">{d.confidence.toFixed(1)}%</td>
+                <td className="font-label-caps text-secondary">{d.action}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </section>
-      <footer className="flex items-center justify-between font-data-mono-sm text-on-surface-variant">
-        <span>SHOWING 5 OF 189 DETECTIONS</span>
-        <div className="flex gap-space-sm">
-          <button className="border border-outline rounded-sm px-space-sm py-1">PREV</button>
-          <button className="border border-outline rounded-sm px-space-sm py-1">NEXT</button>
+      <footer className="flex flex-wrap items-center justify-between gap-2 font-data-mono-sm text-on-surface-variant">
+        <span>SHOWING {rows.length} OF {mockDetections.length} DETECTIONS · PAGE {safePage + 1}/{pageCount}</span>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={safePage === 0}
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            className="rounded-lg border border-outline-variant bg-surface-container-lowest px-3 py-1.5 font-label-caps hover:border-secondary hover:text-secondary disabled:opacity-40 disabled:pointer-events-none transition"
+          >
+            PREV
+          </button>
+          <button
+            type="button"
+            disabled={safePage >= pageCount - 1}
+            onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+            className="rounded-lg border border-outline-variant bg-surface-container-lowest px-3 py-1.5 font-label-caps hover:border-secondary hover:text-secondary disabled:opacity-40 disabled:pointer-events-none transition"
+          >
+            NEXT
+          </button>
         </div>
       </footer>
     </div>
