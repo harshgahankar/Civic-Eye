@@ -39,6 +39,20 @@ class Settings(BaseSettings):
     TRACKER_CONFIG: str = "bytetrack.yaml"
     MAX_FPS: float = 15.0
 
+    # ── Behavior Engine ────────────────────────────────────────────────────────
+    TRACK_HISTORY_SIZE: int = 30
+    TRACK_TIMEOUT_SECONDS: float = 2.0
+    VELOCITY_SMOOTHING_ALPHA: float = 0.4
+    MOVING_THRESHOLD: float = 3.0          # pixels/sec
+    STOPPED_THRESHOLD: float = 1.0         # pixels/sec
+    DECELERATION_THRESHOLD: float = 5.0    # pixels/sec²
+    STATIONARY_MIN_DURATION: float = 3.0   # seconds
+    STATIONARY_MOVEMENT_THRESHOLD: float = 8.0  # max pixel displacement
+    COLLISION_MIN_EVIDENCE_FRAMES: int = 3
+    COLLISION_CONFIRMATION_WINDOW: float = 2.0
+    COLLISION_EVENT_COOLDOWN: float = 5.0
+    CROWD_DENSITY_ROI: str = ""           # empty = full frame
+
     # ── CORS ──────────────────────────────────────────────────────────────
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",

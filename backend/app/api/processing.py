@@ -84,6 +84,7 @@ def _run_pipeline(job: JobStatus, output_path: str) -> None:
         job.status = result.status           # COMPLETED or FAILED
         job.frames_processed = result.frames_processed
         job.detections_count = result.detections_count
+        job.behavior_events_count = result.behavior_events_count
         job.average_fps = result.average_fps
         job.output_path = result.output_path
         job.completed_at = result.completed_at

@@ -19,6 +19,7 @@ class JobStatus(BaseModel):
     output_path: Optional[str] = None
     frames_processed: int = 0
     detections_count: int = 0
+    behavior_events_count: int = 0
     average_fps: float = 0.0
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None

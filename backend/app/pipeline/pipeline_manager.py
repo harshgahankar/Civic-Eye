@@ -7,7 +7,9 @@ End-to-end video processing pipeline:
              ↓
         DetectionEvent list per frame
              ↓
-        Annotated video writer  +  JSONL event log
+        BehaviorEngine → BehaviorEvent list
+             ↓
+        Annotated video writer  +  JSONL event log  +  behavior_events.jsonl
 
 Annotation overlay format:
     CAR #17
@@ -28,10 +30,12 @@ import cv2
 import numpy as np
 
 from app.ai.inference import InferenceEngine
+from app.behavior.behavior_engine import BehaviorEngine
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.pipeline.frame_processor import FrameProcessor
 from app.pipeline.video_reader import VideoReader, VideoReaderError
+from app.schemas.behavior_event import BehaviorEvent
 from app.schemas.detection import DetectionEvent
 
 logger = get_logger(__name__)
@@ -110,13 +114,16 @@ class PipelineResult:
     source: str
     output_path: Optional[str] = None
     events_path: Optional[str] = None
+    behavior_events_path: Optional[str] = None
     frames_processed: int = 0
     detections_count: int = 0
+    behavior_events_count: int = 0
     average_fps: float = 0.0
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     error: Optional[str] = None
     all_events: list[DetectionEvent] = field(default_factory=list)
+    all_behavior_events: list[BehaviorEvent] = field(default_factory=list)
 
 
 class PipelineManager:
@@ -151,7 +158,7 @@ class PipelineManager:
         job_id: str = "JOB-000",
     ) -> PipelineResult:
         """
-        Process a video file: detect, track, annotate, and write output.
+        Process a video file: detect, track, analyze behavior, annotate, write output.
 
         Parameters
         ----------
@@ -183,9 +190,11 @@ class PipelineManager:
         events_dir = Path("data") / "outputs" / job_id
         events_dir.mkdir(parents=True, exist_ok=True)
         events_path = str(events_dir / "events.jsonl")
+        behavior_events_path = str(events_dir / "behavior_events.jsonl")
 
         result.output_path = output_path
         result.events_path = events_path
+        result.behavior_events_path = behavior_events_path
 
         # ── Open video ────────────────────────────────────────────────────
         try:
@@ -195,6 +204,13 @@ class PipelineManager:
             result.completed_at = datetime.now(timezone.utc)
             logger.error("Pipeline failed to open video: %s", exc)
             return result
+
+        # ── Create BehaviorEngine for this job ────────────────────────────
+        behavior_engine = BehaviorEngine(
+            camera_id=camera_id,
+            frame_width=reader.width,
+            frame_height=reader.height,
+        )
 
         # ── Set up video writer ───────────────────────────────────────────
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
@@ -217,13 +233,16 @@ class PipelineManager:
 
         # ── Main processing loop ──────────────────────────────────────────
         all_events: list[DetectionEvent] = []
+        all_behavior_events: list[BehaviorEvent] = []
         t_start = time.perf_counter()
-        t_log = t_start
         fps_samples: list[float] = []
         LOG_INTERVAL = 30  # log every N frames
 
         try:
-            with open(events_path, "w", encoding="utf-8") as ev_file:
+            with (
+                open(events_path, "w", encoding="utf-8") as ev_file,
+                open(behavior_events_path, "w", encoding="utf-8") as bev_file,
+            ):
                 for frame_idx, frame in reader:
                     t_frame_start = time.perf_counter()
                     timestamp = frame_idx / reader.fps
@@ -232,6 +251,19 @@ class PipelineManager:
                     events = self._processor.process_frame(
                         frame, camera_id, frame_idx, timestamp
                     )
+
+                    # ── Behavioral analysis ───────────────────────────────
+                    behavior_events = behavior_engine.process_frame(events, timestamp)
+                    for bev in behavior_events:
+                        bev_file.write(bev.model_dump_json() + "\n")
+                        logger.info(
+                            "[BEHAVIOR][%s] %s track_ids=%s score=%.2f",
+                            camera_id,
+                            bev.event_type,
+                            bev.track_ids,
+                            bev.score,
+                        )
+                    all_behavior_events.extend(behavior_events)
 
                     # Draw annotations
                     annotated = _draw_annotations(frame, events)
@@ -248,16 +280,15 @@ class PipelineManager:
                         fps_samples.append(1.0 / elapsed)
 
                     # Periodic logging
-                    now = time.perf_counter()
                     if frame_idx > 0 and frame_idx % LOG_INTERVAL == 0:
                         recent_fps = (
                             sum(fps_samples[-LOG_INTERVAL:]) / min(len(fps_samples), LOG_INTERVAL)
                         )
                         logger.info(
                             "Camera: %s | Frame: %d | FPS: %.1f | "
-                            "Detections: %d | Active Tracks: %d",
+                            "Detections: %d | Active Tracks: %d | Behavior Events: %d",
                             camera_id, frame_idx, recent_fps,
-                            len(events), len(events),
+                            len(events), len(events), len(all_behavior_events),
                         )
                         if self._progress_callback:
                             self._progress_callback(
@@ -279,9 +310,11 @@ class PipelineManager:
 
         result.frames_processed = reader.frame_number
         result.detections_count = len(all_events)
+        result.behavior_events_count = len(all_behavior_events)
         result.average_fps = round(avg_fps, 2)
         result.completed_at = datetime.now(timezone.utc)
         result.all_events = all_events
+        result.all_behavior_events = all_behavior_events
 
         # Verify output file
         if result.error is None:
@@ -289,9 +322,10 @@ class PipelineManager:
                 result.status = "COMPLETED"
                 logger.info(
                     "Pipeline [%s] COMPLETED: %d frames, %d detections, "
-                    "%.1f avg fps → %s",
+                    "%d behavior events, %.1f avg fps → %s",
                     job_id, result.frames_processed,
-                    result.detections_count, result.average_fps, output_path,
+                    result.detections_count, result.behavior_events_count,
+                    result.average_fps, output_path,
                 )
             else:
                 result.status = "FAILED"

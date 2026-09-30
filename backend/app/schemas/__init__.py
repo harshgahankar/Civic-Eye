@@ -9,6 +9,8 @@ from app.schemas.event import EventCreate, EventResponse
 from app.schemas.incident import IncidentCreate, IncidentResponse
 from app.schemas.alert import AlertCreate, AlertResponse
 from app.schemas.tracking import JobStatus, StartJobRequest, StartJobResponse
+from app.schemas.behavior_event import BehaviorEvent
+from app.schemas.behavior import TrackObservation, KinematicState
 
 __all__ = [
     "CameraCreate",
@@ -27,4 +29,7 @@ __all__ = [
     "JobStatus",
     "StartJobRequest",
     "StartJobResponse",
+    "BehaviorEvent",
+    "TrackObservation",
+    "KinematicState",
 ]
