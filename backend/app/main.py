@@ -86,6 +86,7 @@ def create_app() -> FastAPI:
     from app.api.cameras import router as cameras_router
     from app.api.incidents import router as incidents_router
     from app.api.analytics import router as analytics_router
+    from app.api.processing import router as processing_router
 
     API_PREFIX = "/api/v1"
 
@@ -93,6 +94,7 @@ def create_app() -> FastAPI:
     application.include_router(cameras_router, prefix=API_PREFIX)
     application.include_router(incidents_router, prefix=API_PREFIX)
     application.include_router(analytics_router, prefix=API_PREFIX)
+    application.include_router(processing_router, prefix=API_PREFIX)
 
     return application
 

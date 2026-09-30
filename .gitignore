@@ -43,11 +43,17 @@ htmlcov/
 coverage.xml
 
 # ── AI / data artefacts ───────────────────────────────────────────────────────
-data/videos/
+data/videos/outputs/
 data/outputs/
-data/models/*.pt
-data/models/*.onnx
-data/models/*.weights
+backend/data/
+*.pt
+*.onnx
+*.weights
+# Keep sample videos (data/videos/sample/) tracked — ignore everything else video-ish
+# ── Test / debug outputs ──────────────────────────────────────────────────────
+*_out.txt
+*pytest*.txt
+*_pytest.txt
 
 # ── Misc ──────────────────────────────────────────────────────────────────────
 *.bak

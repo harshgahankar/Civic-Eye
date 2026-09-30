@@ -29,6 +29,16 @@ class Settings(BaseSettings):
     # ── Logging ───────────────────────────────────────────────────────────
     LOG_LEVEL: str = "INFO"
 
+    # ── AI / CV ───────────────────────────────────────────────────────────
+    YOLO_MODEL: str = "yolo11n.pt"
+    AI_CONFIDENCE_THRESHOLD: float = 0.35
+    AI_IOU_THRESHOLD: float = 0.45
+    AI_DEVICE: str = "auto"          # "auto" | "cpu" | "cuda" | "cuda:0"
+    AI_IMAGE_SIZE: int = 640
+    AI_FRAME_SKIP: int = 0           # process every N+1 frames (0 = every frame)
+    TRACKER_CONFIG: str = "bytetrack.yaml"
+    MAX_FPS: float = 15.0
+
     # ── CORS ──────────────────────────────────────────────────────────────
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",

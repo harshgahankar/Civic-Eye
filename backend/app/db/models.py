@@ -118,3 +118,31 @@ class Alert(Base):
     incident: Mapped["Incident"] = relationship(
         "Incident", back_populates="alerts"
     )
+
+
+# ── ProcessingJob ─────────────────────────────────────────────────────────────
+
+class ProcessingJob(Base):
+    __tablename__ = "processing_jobs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    job_id: Mapped[str] = mapped_column(
+        String(64), unique=True, index=True, default=_uuid
+    )
+    camera_id: Mapped[str] = mapped_column(String(64), index=True)
+    status: Mapped[str] = mapped_column(String(32), default="QUEUED")
+    source: Mapped[str] = mapped_column(String(512))
+    output_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    frames_processed: Mapped[int] = mapped_column(default=0)
+    detections_count: Mapped[int] = mapped_column(default=0)
+    average_fps: Mapped[float] = mapped_column(Float, default=0.0)
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now
+    )
