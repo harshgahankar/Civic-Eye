@@ -1,18 +1,54 @@
-const MODES = ['OPTICAL', 'THERMAL', 'TRAFFIC'];
+export type MapMode = 'OPTICAL' | 'THERMAL' | 'TRAFFIC';
 
-export function MapControls() {
+const MODES: MapMode[] = ['OPTICAL', 'THERMAL', 'TRAFFIC'];
+
+interface Props {
+  mode?: MapMode;
+  onModeChange?: (m: MapMode) => void;
+  zoom?: number;
+  onZoomIn?: () => void;
+  onZoomOut?: () => void;
+}
+
+export function MapControls({ mode = 'OPTICAL', onModeChange, zoom = 1, onZoomIn, onZoomOut }: Props) {
   return (
-    <div className="flex items-center gap-space-sm">
-      <div className="flex gap-1 bg-surface-container border border-outline-variant rounded-sm p-1">
-        {MODES.map((m, i) => (
-          <button key={m} className={`font-label-caps px-space-sm py-1 rounded-sm ${i === 0 ? 'bg-primary text-on-primary' : 'text-on-surface-variant hover:bg-surface-container-high'}`}>
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex gap-1 rounded-xl border border-outline-variant bg-surface-container-lowest p-1 shadow-card" role="tablist" aria-label="Map layer mode">
+        {MODES.map((m) => (
+          <button
+            key={m}
+            type="button"
+            role="tab"
+            aria-selected={mode === m}
+            onClick={() => onModeChange?.(m)}
+            className={`rounded-lg px-3 py-1.5 font-label-caps transition ${
+              mode === m ? 'bg-primary-container text-white shadow-card' : 'text-on-surface-variant hover:bg-surface-container-low'
+            }`}
+          >
             {m}
           </button>
         ))}
       </div>
-      <div className="flex gap-1">
-        <button aria-label="zoom in" className="w-8 h-8 border border-outline-variant rounded-sm font-data-mono-lg text-on-surface bg-surface-container-lowest">+</button>
-        <button aria-label="zoom out" className="w-8 h-8 border border-outline-variant rounded-sm font-data-mono-lg text-on-surface bg-surface-container-lowest">−</button>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          aria-label="Zoom map in"
+          onClick={onZoomIn}
+          className="flex h-8 w-8 items-center justify-center rounded-lg border border-outline-variant bg-surface-container-lowest font-data-mono-lg text-on-surface shadow-card hover:border-secondary hover:text-secondary transition"
+        >
+          +
+        </button>
+        <span className="w-12 text-center font-data-mono-sm tabular-nums text-on-surface-variant" aria-live="polite">
+          {Math.round(zoom * 100)}%
+        </span>
+        <button
+          type="button"
+          aria-label="Zoom map out"
+          onClick={onZoomOut}
+          className="flex h-8 w-8 items-center justify-center rounded-lg border border-outline-variant bg-surface-container-lowest font-data-mono-lg text-on-surface shadow-card hover:border-secondary hover:text-secondary transition"
+        >
+          −
+        </button>
       </div>
     </div>
   );

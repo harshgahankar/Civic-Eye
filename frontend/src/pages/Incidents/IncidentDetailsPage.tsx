@@ -1,9 +1,13 @@
+import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import IncidentDetails from '../../components/incidents/IncidentDetails';
 import AIAnalysis from '../../components/ai/AIAnalysis';
 import AIDecisionTrail from '../../components/ai/AIDecisionTrail';
 import EmergencyPanel from '../../components/emergency/EmergencyPanel';
+import DispatchModal from '../../components/emergency/DispatchModal';
 import DetectionOverlay from '../../components/cctv/DetectionOverlay';
+import { printPage } from '../../utils/actions';
+import { useUiStore } from '../../store/uiStore';
 
 const FEED_IMG =
   'https://lh3.googleusercontent.com/aida-public/AB6AXuCeoZtQeufb9Na37b9Xq3_BjHWzjZiIGKKOk1iB_-3Q6e-jtYvYUFFeXfLm-Dl3zXWcxhc5Cr2RllvsIrBnSON613Ef3nFeyZH4YnBVsls6r8eIwAUbAUdrzSD-mz8rrVZEzSth4OBFd4hKlAbiASVDSGchQrc8-IHv4n1I7yFgQqnKwZVzCM6LPEAYLV_LV7pjhM1mD_ZR0DaxBZtodzcMHApoDGgSVXTDOjeKPUt1ekRigwYZ3T2F';
@@ -26,6 +30,14 @@ const ENTITIES = [
 export function IncidentDetailsPage() {
   const { id } = useParams();
   const num = id ?? '1042';
+  const pushToast = useUiStore((s) => s.pushToast);
+  const [forwarded, setForwarded] = useState(false);
+  const [dispatchOpen, setDispatchOpen] = useState(false);
+
+  const forward = () => {
+    setForwarded(true);
+    pushToast(`INC-${num} dossier forwarded to watch command.`, 'success');
+  };
 
   return (
     <div className="flex flex-col gap-space-lg">
@@ -36,8 +48,15 @@ export function IncidentDetailsPage() {
           <h1 className="font-headline-xl text-on-surface">INCIDENT {num}</h1>
         </div>
         <div className="ml-auto flex gap-space-sm">
-          <button className="font-label-caps rounded-sm border border-outline px-space-md py-2 text-on-surface-variant">PRINT</button>
-          <button className="font-label-caps rounded-sm bg-secondary px-space-md py-2 text-on-primary">FORWARD</button>
+          <button type="button" onClick={printPage} className="font-label-caps rounded-sm border border-outline px-space-md py-2 text-on-surface-variant hover:border-on-surface-variant transition">PRINT</button>
+          <button
+            type="button"
+            onClick={forward}
+            disabled={forwarded}
+            className="font-label-caps rounded-sm bg-secondary px-space-md py-2 text-on-primary hover:bg-blue-700 disabled:opacity-60 disabled:pointer-events-none transition"
+          >
+            {forwarded ? 'FORWARDED ✓' : 'FORWARD'}
+          </button>
         </div>
       </header>
       <div className="grid grid-cols-2 gap-space-sm md:grid-cols-5">
@@ -105,9 +124,10 @@ export function IncidentDetailsPage() {
               <li className="flex justify-between py-1"><span>SIGNAL CONTROLLER</span><span>HOLD ALL-RED</span></li>
             </ul>
           </section>
-          <EmergencyPanel />
+          <EmergencyPanel onDispatch={() => setDispatchOpen(true)} />
         </div>
       </div>
+      <DispatchModal open={dispatchOpen} incidentId={`INC-${num}`} onClose={() => setDispatchOpen(false)} />
     </div>
   );
 }

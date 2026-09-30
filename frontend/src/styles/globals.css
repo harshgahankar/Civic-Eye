@@ -37,3 +37,24 @@ main > :last-child { margin-bottom: 0 !important; }
   .table-shell tbody tr { @apply border-b border-outline-variant/60 last:border-0 hover:bg-surface-container-low/60 transition-colors; }
   .table-shell td { @apply py-3 px-4 align-middle; }
 }
+
+/* Leaflet overrides — CivicEye dark blue-gray treatment (plain CSS, no @apply) */
+.leaflet-container { font-family: 'Public Sans', system-ui, sans-serif; background: #0b1b2b; outline: none; }
+.leaflet-container:focus-visible { outline: 2px solid #2563eb; outline-offset: -2px; }
+/* Dark blue-gray basemap: recolor keyless OSM raster tiles (markers/popups live in
+   separate panes, so they keep their true colors). */
+.leaflet-tile-pane { filter: brightness(0.62) invert(1) contrast(2.6) hue-rotate(198deg) saturate(0.32) brightness(0.94); }
+.leaflet-bar { border: 1px solid #e2e8f0 !important; border-radius: 10px !important; overflow: hidden; box-shadow: 0 1px 2px rgb(15 23 42 / 0.08) !important; }
+.leaflet-bar a { background: #ffffff !important; color: #0f172a !important; border-bottom: 1px solid #e2e8f0 !important; width: 32px !important; height: 32px !important; line-height: 32px !important; }
+.leaflet-bar a:hover { background: #f1f5f9 !important; color: #2563eb !important; }
+.leaflet-popup-content-wrapper { border-radius: 14px !important; border: 1px solid #e2e8f0; box-shadow: 0 8px 24px -8px rgb(15 23 42 / 0.25) !important; }
+.leaflet-popup-content { margin: 14px 16px !important; line-height: 1.45 !important; }
+.leaflet-popup-tip { box-shadow: none !important; }
+.leaflet-popup-close-button { color: #64748b !important; padding: 8px 8px 0 0 !important; }
+.leaflet-control-attribution { font-size: 10px !important; background: rgba(15,23,42,.72) !important; color: #94a3b8 !important; padding: 2px 8px !important; border-radius: 8px 0 0 0; }
+.leaflet-control-attribution a { color: #93c5fd !important; }
+/* Cluster + hover tooltip treatment (plain CSS, no @apply) */
+.marker-cluster { background: transparent !important; border: none !important; }
+.marker-cluster div { background: transparent !important; }
+.civic-tip { font-family: 'IBM Plex Mono', monospace !important; font-size: 10px !important; font-weight: 600 !important; letter-spacing: 0.04em !important; color: #dbeafe !important; background: rgba(15,23,42,.92) !important; border: 1px solid rgba(147,197,253,.35) !important; border-radius: 6px !important; padding: 2px 7px !important; box-shadow: 0 4px 12px rgba(0,0,0,.4) !important; }
+.civic-tip::before { display: none !important; }

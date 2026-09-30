@@ -1,7 +1,7 @@
 import KPIBar from '../../components/dashboard/KPIBar';
 import LiveIncidentRail from '../../components/dashboard/LiveIncidentRail';
 import SystemStatus from '../../components/dashboard/SystemStatus';
-import IntelligenceMap from '../../components/map/IntelligenceMap';
+import MumbaiLiveMap from '../../components/map/MumbaiLiveMap';
 
 const AERIAL_IMG =
   'https://lh3.googleusercontent.com/aida-public/AB6AXuC4bJBHdbCK6ORxpT380TsrWXgSmKIpESzBMV8Rz1GJ47t-0o08TRmA2_OSq4fBrvMN80QZ8RrWwuu0DzbzyiKpW7dyCQb9b1DnloFPET9kbsoGnSm_4udA_TcyAGWaQOEtELbx488rvxFKz9A5Anl6AXNMF8shtfu9xWAfflm20hsLkL3K8hlxZnFEsIDfanSZ_0wCsJhSshSjDL5V3vqMZKxpBCWBcg4UDTu8ngsmGsLyA2u0Aa4m';
@@ -36,7 +36,7 @@ export function CommandCenterPage() {
       {/* Split display */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
         <div className="lg:col-span-8 min-w-0">
-          <IntelligenceMap interactive />
+          <MumbaiLiveMap interactive />
         </div>
         <div className="lg:col-span-4 min-w-0">
           <LiveIncidentRail />
