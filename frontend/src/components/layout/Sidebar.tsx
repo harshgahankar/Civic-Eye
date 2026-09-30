@@ -1,81 +1,132 @@
 import { NavLink } from 'react-router-dom';
 
-const BRAND_IMG =
-  'https://lh3.googleusercontent.com/aida/AEtjO1VFD_4BV2xF-ScePrH6xlFr52SaHp5DmcI5DH0cmCAKCT9i0zZNZbZnYkh_9mlqJcfgFxnjLV_SbKgY8Z7LNm1eZ6tT1KiscSqgvjrS-v5I9AscZKZlWaaloMvLfwInEtJqFBENgUsqDLnTYtps8T-o3VMoGuZAPBum6uwhAq6lpaM2ZBkbIDdYknIqa0ywq4C5j9fRymHOFd80SFsOkkoEwZBqzfh0Y6DSC9B2FSxJNNS3deNWc07_mBY';
-
 const NAV = [
-  { to: '/command-center', label: 'Command Center', icon: 'dashboard' },
-  { to: '/cameras', label: 'Live Cameras', icon: 'videocam' },
-  { to: '/incidents', label: 'Incidents', icon: 'warning' },
-  { to: '/map', label: 'City Map', icon: 'explore' },
-  { to: '/analytics', label: 'Analytics', icon: 'query_stats' },
-  { to: '/emergency', label: 'Emergency', icon: 'notifications_active' },
+  { to: '/command-center', label: 'Command Center', icon: 'dashboard', desc: 'City overview' },
+  { to: '/cameras', label: 'Live Cameras', icon: 'videocam', desc: '24 feeds' },
+  { to: '/incidents', label: 'Incidents', icon: 'warning', desc: 'Active queue' },
+  { to: '/map', label: 'City Map', icon: 'explore', desc: 'Geospatial' },
+  { to: '/analytics', label: 'Analytics', icon: 'query_stats', desc: 'Trends & KPIs' },
+  { to: '/emergency', label: 'Emergency', icon: 'notifications_active', desc: 'Dispatch' },
 ];
 
 const TELEMETRY = ['VISION', 'TRACKING', 'ALERT', 'DATABASE'];
 
-export default function Sidebar() {
+interface Props {
+  mobileOpen?: boolean;
+  onClose?: () => void;
+}
+
+function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
   return (
-    <aside className="fixed left-0 top-0 w-[280px] h-screen bg-primary-container z-50 flex flex-col justify-between border-r border-outline/20">
-      <div>
-        <div className="flex items-center gap-space-sm px-space-lg pt-space-lg pb-space-md">
-          <img src={BRAND_IMG} alt="CivicEye mark" className="w-10 h-10 rounded-sm object-cover" />
-          <div>
-            <h1 className="font-headline-md text-on-primary tracking-wide">CIVICEYE</h1>
-            <p className="font-label-caps text-secondary-fixed-dim">
-              AI-POWERED PUBLIC SAFETY INTELLIGENCE
-            </p>
+    <div className="flex h-full flex-col">
+      {/* Brand */}
+      <div className="px-5 pt-6 pb-5 border-b border-white/10">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-secondary to-blue-800 shadow-pop shrink-0">
+            <span className="material-symbols-outlined text-on-primary text-xl">visibility</span>
+          </div>
+          <div className="min-w-0">
+            <h1 className="font-headline-md text-on-primary tracking-wide leading-none">CIVICEYE</h1>
+            <p className="font-label-caps text-on-primary-container mt-1">PUBLIC SAFETY INTEL</p>
           </div>
         </div>
-        <p className="px-space-lg font-data-mono-sm text-on-primary-container">
+        <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/5 border border-white/10 px-2.5 py-1 font-data-mono-sm text-secondary-fixed">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
           MONITOR · DETECT · RESPOND
         </p>
-        <nav className="mt-space-lg px-space-sm">
-          <p className="px-space-sm pb-space-sm font-label-caps text-on-primary-container">
-            Tactical Routing
-          </p>
-          <ul className="flex flex-col gap-1">
-            {NAV.map((n) => (
-              <li key={n.to}>
-                <NavLink
-                  to={n.to}
-                  className={({ isActive }) =>
-                    `flex items-center gap-space-sm px-space-sm py-space-sm font-data-mono-md border-l-2 transition-colors ${
-                      isActive
-                        ? 'bg-secondary text-on-primary border-secondary-fixed font-semibold'
-                        : 'text-on-primary-container border-transparent hover:bg-secondary/40'
-                    }`
-                  }
-                >
-                  <span className="material-symbols-outlined text-lg">{n.icon}</span>
-                  {n.label}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
-        </nav>
       </div>
-      <div className="px-space-lg pb-space-lg">
-        <p className="font-label-caps text-on-primary-container pb-space-sm">SYSTEM STATUS</p>
+
+      {/* Nav */}
+      <nav className="flex-1 overflow-y-auto px-3 py-4">
+        <p className="px-3 pb-2 font-label-caps text-on-primary-container">OPERATIONS</p>
         <ul className="flex flex-col gap-1">
-          {TELEMETRY.map((t) => (
-            <li
-              key={t}
-              className="flex items-center justify-between font-data-mono-sm text-secondary-fixed"
-            >
-              <span>{t}</span>
-              <span className="flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
-                ONLINE
-              </span>
+          {NAV.map((n) => (
+            <li key={n.to}>
+              <NavLink
+                to={n.to}
+                onClick={onNavigate}
+                className={({ isActive }) =>
+                  `group flex items-center gap-3 rounded-lg px-3 py-2.5 transition-all ${
+                    isActive
+                      ? 'bg-secondary text-on-primary shadow-pop'
+                      : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                  }`
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    <span
+                      className={`flex h-8 w-8 items-center justify-center rounded-lg shrink-0 transition-colors ${
+                        isActive ? 'bg-white/20' : 'bg-white/5 group-hover:bg-white/10'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[20px]">{n.icon}</span>
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-data-mono-md font-semibold">{n.label}</span>
+                      <span className={`block truncate font-data-mono-sm ${isActive ? 'text-blue-100' : 'text-slate-400'}`}>
+                        {n.desc}
+                      </span>
+                    </span>
+                    {isActive && <span className="h-5 w-1 rounded-full bg-white/70" />}
+                  </>
+                )}
+              </NavLink>
             </li>
           ))}
         </ul>
-        <div className="mt-space-md flex items-center justify-between border-t border-outline/20 pt-space-sm font-data-mono-sm text-on-primary-container">
-          <span>LATENCY 18ms</span>
-          <span>CLUSTER NYC-METRO-01</span>
+      </nav>
+
+      {/* Telemetry */}
+      <div className="px-3 pb-5">
+        <div className="rounded-xl bg-white/5 border border-white/10 p-3.5">
+          <div className="flex items-center justify-between pb-2">
+            <p className="font-label-caps text-on-primary-container">SYSTEM STATUS</p>
+            <span className="flex items-center gap-1 font-data-mono-sm text-emerald-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" /> LIVE
+            </span>
+          </div>
+          <ul className="flex flex-col gap-1.5">
+            {TELEMETRY.map((t) => (
+              <li key={t} className="flex items-center justify-between font-data-mono-sm">
+                <span className="text-slate-400">{t}</span>
+                <span className="font-semibold text-slate-200">ONLINE</span>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-2.5 flex items-center justify-between border-t border-white/10 pt-2.5 font-data-mono-sm text-slate-400">
+            <span>18ms latency</span>
+            <span>NYC-METRO-01</span>
+          </div>
         </div>
       </div>
-    </aside>
+    </div>
+  );
+}
+
+export default function Sidebar({ mobileOpen = false, onClose }: Props) {
+  return (
+    <>
+      {/* Desktop */}
+      <aside className="fixed left-0 top-0 hidden h-screen w-[280px] bg-primary-container z-50 lg:block shadow-pop">
+        <SidebarBody />
+      </aside>
+      {/* Mobile drawer */}
+      {mobileOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <div className="absolute inset-0 bg-primary/60 backdrop-blur-sm anim-fade-up" onClick={onClose} />
+          <aside className="absolute left-0 top-0 h-full w-[300px] bg-primary-container shadow-pop anim-scale-in">
+            <button
+              onClick={onClose}
+              aria-label="Close menu"
+              className="absolute right-3 top-4 rounded-lg p-1.5 text-slate-300 hover:bg-white/10 hover:text-white"
+            >
+              <span className="material-symbols-outlined">close</span>
+            </button>
+            <SidebarBody onNavigate={onClose} />
+          </aside>
+        </div>
+      )}
+    </>
   );
 }

@@ -17,23 +17,24 @@ export interface CCTVCardProps {
 
 export function CCTVCard({ camera, overlay, children }: CCTVCardProps) {
   return (
-    <article className="bg-primary-container border border-outline/20 rounded-sm overflow-hidden">
-      <div className="flex items-center justify-between px-space-sm py-space-xs">
-        <p className="font-data-mono-md text-on-primary">{camera.id} · {camera.name}</p>
+    <article className="group overflow-hidden rounded-xl border border-outline-variant bg-surface-container-lowest shadow-card transition-all hover:shadow-pop">
+      <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 border-b border-outline-variant/70">
+        <p className="truncate font-data-mono-md font-semibold text-on-surface">{camera.id} <span className="font-normal text-on-surface-variant">· {camera.name}</span></p>
         <CameraStatus live={camera.live} fps={camera.fps} />
       </div>
-      <div className="relative aspect-video bg-primary">
-        <img src={camera.src} alt={`${camera.id} feed`} className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
-        <span className="absolute top-1 left-1 w-4 h-4 border-t-2 border-l-2 border-secondary-fixed" />
-        <span className="absolute top-1 right-1 w-4 h-4 border-t-2 border-r-2 border-secondary-fixed" />
-        <span className="absolute bottom-1 left-1 w-4 h-4 border-b-2 border-l-2 border-secondary-fixed" />
-        <span className="absolute bottom-1 right-1 w-4 h-4 border-b-2 border-r-2 border-secondary-fixed" />
+      <div className="relative aspect-video bg-primary overflow-hidden">
+        <img src={camera.src} alt={`${camera.id} feed`} className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" loading="lazy" />
+        <div className="absolute inset-0 bg-gradient-to-t from-primary/30 via-transparent to-transparent pointer-events-none" />
+        <span className="absolute top-2 left-2 w-4 h-4 border-t-2 border-l-2 border-white/80 rounded-tl-sm drop-shadow" />
+        <span className="absolute top-2 right-2 w-4 h-4 border-t-2 border-r-2 border-white/80 rounded-tr-sm drop-shadow" />
+        <span className="absolute bottom-2 left-2 w-4 h-4 border-b-2 border-l-2 border-white/80 rounded-bl-sm drop-shadow" />
+        <span className="absolute bottom-2 right-2 w-4 h-4 border-b-2 border-r-2 border-white/80 rounded-br-sm drop-shadow" />
         {overlay}
         {children}
       </div>
-      <div className="flex items-center justify-between px-space-sm py-space-xs font-data-mono-sm text-on-primary-container">
+      <div className="flex items-center justify-between gap-2 px-3.5 py-2 font-data-mono-sm text-on-surface-variant bg-surface-container-low/50">
         <span>OSD {camera.id} · 1080p</span>
-        <span>TELEMETRY 30FPS · H.265</span>
+        <span>30FPS · H.265</span>
       </div>
     </article>
   );

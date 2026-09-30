@@ -1,26 +1,34 @@
 import type { ButtonHTMLAttributes } from 'react';
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
+type Size = 'sm' | 'md' | 'lg';
 
 interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
+  size?: Size;
   icon?: string;
 }
 
 const variants: Record<Variant, string> = {
-  primary: 'bg-primary text-on-primary hover:bg-primary-container',
-  secondary: 'bg-secondary-container text-on-surface hover:bg-secondary-fixed',
-  ghost: 'bg-transparent text-on-surface hover:bg-surface-container-high border border-outline-variant',
-  danger: 'bg-error text-on-primary hover:opacity-90',
+  primary: 'bg-secondary text-on-secondary hover:bg-blue-700 shadow-card active:scale-[0.98]',
+  secondary: 'bg-secondary-fixed text-on-secondary-fixed hover:bg-secondary-container active:scale-[0.98]',
+  ghost: 'bg-surface-container-lowest text-on-surface border border-outline-variant hover:border-secondary hover:text-secondary shadow-card active:scale-[0.98]',
+  danger: 'bg-error text-on-error hover:bg-red-700 shadow-card active:scale-[0.98]',
 };
 
-export default function Button({ variant = 'primary', icon, children, className = '', ...rest }: Props) {
+const sizes: Record<Size, string> = {
+  sm: 'px-3 py-1.5 text-[11px]',
+  md: 'px-4 py-2 text-[12px]',
+  lg: 'px-5 py-2.5 text-[13px]',
+};
+
+export default function Button({ variant = 'primary', size = 'md', icon, children, className = '', ...rest }: Props) {
   return (
     <button
-      className={`inline-flex items-center gap-2 rounded-md px-4 py-2 font-label-caps uppercase transition-colors disabled:opacity-50 ${variants[variant]} ${className}`}
+      className={`inline-flex items-center justify-center gap-1.5 rounded-lg font-label-caps uppercase tracking-wider transition-all focus-visible:outline-2 disabled:opacity-50 disabled:pointer-events-none ${variants[variant]} ${sizes[size]} ${className}`}
       {...rest}
     >
-      {icon && <span className="material-symbols-outlined text-base leading-none">{icon}</span>}
+      {icon && <span className="material-symbols-outlined text-[16px] leading-none">{icon}</span>}
       {children}
     </button>
   );
