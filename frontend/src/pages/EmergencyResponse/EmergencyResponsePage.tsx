@@ -168,8 +168,10 @@ export function EmergencyResponsePage() {
       try {
         const rows = await incidentService.list();
         if (!live) return;
+        // Only CONFIRMED (active) / DISPATCHED reach Emergency.
+        // VERIFYING / DETECTED (monitoring / pending) must never flag.
         const active = rows.filter(
-          (i) => i.status === 'active' || i.status === 'pending' || i.status === 'monitoring',
+          (i) => i.status === 'active' || i.status === 'dispatched',
         );
         // Resolve each incident's stamped upload video, then merge cards so
         // one video appears exactly once.

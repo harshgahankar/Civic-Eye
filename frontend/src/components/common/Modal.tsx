@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 interface Props {
   open: boolean;
@@ -26,8 +27,12 @@ export default function Modal({ open, title, onClose, children }: Props) {
   }, [open, onClose]);
 
   if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-primary/60 backdrop-blur-sm p-4 anim-fade-up" onClick={onClose}>
+  // Portal to <body> so the dialog escapes ancestor stacking contexts
+  // (notably the Leaflet map, whose internal panes/controls paint up to
+  // z-1000 and would otherwise cover an inline dialog). z-[60] matches the
+  // other app modals; toasts stay above at z-[70].
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-primary/60 backdrop-blur-sm p-4 anim-fade-up" onClick={onClose}>
       <div
         ref={panelRef}
         className="w-full max-w-lg rounded-2xl bg-surface-container-lowest p-6 shadow-pop anim-scale-in"
@@ -44,6 +49,7 @@ export default function Modal({ open, title, onClose, children }: Props) {
         </div>
         <div className="font-body-md text-on-surface">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from app.core.config import settings
 from app.intelligence.accident import assess_accident
+from app.schemas.incident import EvidenceItem
 from tests.intelligence.helpers import ev_item
 
 
@@ -60,3 +61,37 @@ class TestAccidentAssessment:
     def test_threshold_comes_from_config(self) -> None:
         assert settings.ACCIDENT_CONFIRMATION_THRESHOLD == 0.55
         assert settings.ACCIDENT_MIN_EVIDENCE == 3
+
+    @staticmethod
+    def _overlap_collision(timestamp: float, conf: float = 0.7) -> EvidenceItem:
+        return EvidenceItem(
+            type="POSSIBLE_COLLISION", timestamp=timestamp, confidence=conf,
+            track_ids=[17, 19], source="behavior_engine",
+            metadata={"overlap_score": 0.15, "proximity_score": 0.7},
+        )
+
+    def test_sustained_overlap_with_stop_confirms(self) -> None:
+        # Real crash: repeated overlap + a speed collapse. Without the
+        # sustained-impact bonus this caps below threshold.
+        evidence = [
+            self._overlap_collision(0.0), self._overlap_collision(1.0),
+            self._overlap_collision(2.0), self._overlap_collision(3.0),
+            ev_item("SUDDEN_STOP", 2.2, 0.85, [17]),
+        ]
+        a = assess_accident(evidence, span_seconds=3.0)
+        assert a.confirmed is True
+        assert any("sustained vehicle overlap" in r for r in a.reasons)
+
+    def test_sustained_overlap_traj_only_rejected(self) -> None:
+        # Side-by-side convoy (bus alongside cars): sustained small
+        # overlaps + jitter trajectory blips, nobody slowing down.
+        # Trajectory-only corroboration must not earn the bonus.
+        evidence = [
+            self._overlap_collision(0.0), self._overlap_collision(1.0),
+            self._overlap_collision(2.0), self._overlap_collision(3.0),
+            self._overlap_collision(4.0),
+            ev_item("TRAJECTORY_ANOMALY", 2.5, 0.6, [19]),
+        ]
+        a = assess_accident(evidence, span_seconds=4.0)
+        assert a.confirmed is False
+        assert not any("sustained vehicle overlap" in r for r in a.reasons)

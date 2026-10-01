@@ -59,22 +59,21 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
   }, [open, job?.job_id, job?.status]);
 
   // Incident alert: when a job completes, check its incidents once. Only
-  // CONFIRMED incidents raise the alert toast — VERIFYING candidates are
-  // still gathering evidence and must not shout. Any live incident still
-  // flags the video for Emergency.
+  // CONFIRMED / DISPATCHED incidents flag the video — VERIFYING / DETECTED
+  // candidates and FALSE_ALARMs must never flag a clean video. 0 confirmed
+  // means 0 flags.
   useEffect(() => {
     if (!open || !job || job.status !== 'COMPLETED' || alertedFor.current === job.job_id) return;
     alertedFor.current = job.job_id;
     backend.jobIncidents(job.job_id)
       .then((rows) => {
-        const hits = rows.filter((r) => r.status !== 'FALSE_ALARM');
+        const hits = rows.filter((r) => r.status === 'CONFIRMED' || r.status === 'DISPATCHED');
         setAccidents(hits);
-        const confirmed = hits.filter((r) => r.status === 'CONFIRMED');
-        if (confirmed.length > 0) {
-          const kinds = [...new Set(confirmed.map((h) => typeLabel(h.incident_type)))].join(' · ');
-          const critical = confirmed.some((h) => h.severity?.toLowerCase() === 'critical');
+        if (hits.length > 0) {
+          const kinds = [...new Set(hits.map((h) => typeLabel(h.incident_type)))].join(' · ');
+          const critical = hits.some((h) => h.severity?.toLowerCase() === 'critical');
           pushToast(
-            `${critical ? 'CRITICAL INCIDENT' : 'INCIDENT'} CONFIRMED in ${job.job_id} — ${confirmed.length} (${kinds}, ${job.camera_id}). Video flagged in Emergency.`,
+            `${critical ? 'CRITICAL INCIDENT' : 'INCIDENT'} CONFIRMED in ${job.job_id} — ${hits.length} (${kinds}, ${job.camera_id}). Video flagged in Emergency.`,
             'error',
           );
         }
@@ -118,8 +117,7 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
   const failed = job?.status === 'FAILED';
   const previewUrl = done && job ? backend.jobVideoUrl(job.job_id) : null;
   const downloadUrl = done && job ? backend.jobDownloadUrl(job.job_id) : null;
-  const confirmedCount = accidents.filter((a) => a.status === 'CONFIRMED').length;
-  const reviewCount = accidents.length - confirmedCount;
+  const confirmedCount = accidents.length;
 
   return createPortal(
     <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-primary/60 backdrop-blur-sm p-4 anim-fade-up" onClick={onClose} role="dialog" aria-modal="true" aria-label="Upload video">
@@ -193,7 +191,7 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
                       <div role="alert" className="mt-3 flex items-start gap-2 rounded-xl border border-error bg-error/10 px-3 py-2.5">
                         <span className="material-symbols-outlined text-[20px] text-error">warning</span>
                         <p className="font-body-sm font-medium text-on-surface">
-                          {confirmedCount > 0 ? 'INCIDENT CONFIRMED' : 'INCIDENT UNDER REVIEW'} — {[...new Set(accidents.map((a) => typeLabel(a.incident_type)))].join(' · ')} · {confirmedCount} confirmed, {reviewCount} under review ({accidents.map((a) => a.incident_id).join(', ')}).
+                          INCIDENT CONFIRMED — {[...new Set(accidents.map((a) => typeLabel(a.incident_type)))].join(' · ')} · {confirmedCount} confirmed ({accidents.map((a) => a.incident_id).join(', ')}).
                           This video is flagged and listed in Emergency.
                         </p>
                       </div>

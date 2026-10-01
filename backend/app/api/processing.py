@@ -283,12 +283,19 @@ def get_output_video(filename: str) -> FileResponse:
     summary="List incidents produced by a processing job",
 )
 def get_job_incidents(job_id: str, db: Session = Depends(get_db)) -> List[IncidentSummary]:
-    """Return incident summaries for every incident the job recorded."""
+    """Return live actionables for a job — CONFIRMED / DISPATCHED only.
+
+    FALSE_ALARM and still-unconfirmed candidates never flag a video:
+    0 confirmed means an empty list.
+    """
     job = _get_job(job_id)
     ids = list(getattr(job, "incident_ids", []) or [])
     if not ids:
         return []
-    rows = db.query(IncidentRow).filter(IncidentRow.incident_id.in_(ids)).all()
+    rows = db.query(IncidentRow).filter(
+        IncidentRow.incident_id.in_(ids),
+        IncidentRow.status.in_(["CONFIRMED", "DISPATCHED"]),
+    ).all()
     by_id = {r.incident_id: r for r in rows}
     return [_to_summary(by_id[i]) for i in ids if i in by_id]
 

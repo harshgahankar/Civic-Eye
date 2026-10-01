@@ -74,5 +74,28 @@ def should_suppress(
         # RULE 4: temporary spike lasting < 1s with few samples → suppress
         if span_seconds < 1.0 and len(evidence) < 3:
             return SuppressionDecision(True, "transient_crowd_spike")
+        # RULE 6: traffic-dominated crowd signals — vehicles outnumber
+        # pedestrians across the evidence window (riders in normal flow
+        # counted as persons). Suppress unless a large pedestrian group
+        # persists over a real time span.
+        if candidate_type == "CROWD_ANOMALY":
+            veh_dominated = 0
+            ped_total = 0
+            for item in evidence:
+                try:
+                    v = int(item.metadata.get("vehicle_count", 0))
+                except (TypeError, ValueError):
+                    v = 0
+                try:
+                    p = int(item.metadata.get("person_count", len(item.track_ids)))
+                except (TypeError, ValueError):
+                    p = len(item.track_ids)
+                ped_total += p
+                if v > p:
+                    veh_dominated += 1
+            if evidence and veh_dominated > len(evidence) // 2:
+                avg_ped = ped_total / max(len(evidence), 1)
+                if avg_ped < 8 or span_seconds < 3.0:
+                    return SuppressionDecision(True, "traffic_dominated_crowd_signal")
 
     return SuppressionDecision(False, "")

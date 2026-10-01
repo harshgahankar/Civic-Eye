@@ -100,9 +100,36 @@ def assess_accident(
         final += 0.08
     elif distinct == 2:
         final += 0.04
+    # Sustained-impact bonus: boxes that REPEATEDLY overlap (not just pass
+    # near) plus a genuine speed collapse (deceleration / post-impact
+    # stillness) is the signature of a real crash. Passing traffic and
+    # side-by-side convoys (a bus alongside cars for seconds, small
+    # overlaps, jitter trajectory blips, nobody slowing) must NOT earn
+    # this — so trajectory-only corroboration does not qualify. Without
+    # this bonus, collision-only evidence caps below the confirmation
+    # threshold and genuine 2-car impacts never confirm.
+    max_overlap = 0.0
+    for item in collision_items:
+        try:
+            max_overlap = max(max_overlap,
+                              float(item.metadata.get("overlap_score", 0.0)))
+        except (TypeError, ValueError):
+            continue
+    sustained_impact = (
+        len(collision_items) >= 4 and max_overlap >= 0.08
+        and span_seconds >= 1.0
+        and (deceleration_score > 0.0 or stationary_score > 0.0)
+    )
+    if sustained_impact:
+        final += 0.12
     final = round(min(1.0, max(0.0, final)), 4)
 
     reasons: List[str] = []
+    if sustained_impact:
+        reasons.append(
+            f"sustained vehicle overlap (peak IoU {max_overlap:.2f} over "
+            f"{len(collision_items)} signals) with corroborating motion change"
+        )
     if collision_items:
         reasons.append(
             f"vehicle collision signal observed {len(collision_items)}x "

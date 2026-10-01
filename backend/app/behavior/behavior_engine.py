@@ -32,8 +32,16 @@ from app.behavior.crowd import CrowdStats, compute_crowd_stats, detect_crowd_ano
 
 logger = get_logger(__name__)
 
-# Maximum pixel distance between two vehicle centres to compare for collision
+# Base pixel distance between two vehicle centres to compare for collision,
+# scaled by frame resolution at runtime (large vehicles on 1080p footage can
+# have centres far apart while their boxes overlap).
 _COLLISION_SPATIAL_THRESHOLD = 300.0
+# Fraction of the frame diagonal used as the spatial gate on big frames.
+_COLLISION_SPATIAL_SCALE = 0.25
+# Two boxes whose centres are closer than this fraction of their smallest
+# dimension are the same object detected twice (duplicate YOLO boxes reach
+# IoU ~0.97) — never collision evidence.
+_COLLISION_DUPLICATE_RATIO = 0.35
 
 
 class BehaviorEngine:
@@ -107,6 +115,10 @@ class BehaviorEngine:
                 kin = compute_kinematics(history, alpha=settings.VELOCITY_SMOOTHING_ALPHA)
                 track_kinematics[ev.track_id] = kin
 
+            # Resolution scale for all pixel thresholds (~800px diagonal
+            # reference; 1080p footage has ~2.75x the pixels and the jitter).
+            res_scale = max(self._frame_diagonal / 800.0, 0.5)
+
             # ── 4. Sudden stop detection ──────────────────────────────────
             for ev in events:
                 history = self._track_history.get_history(self.camera_id, ev.track_id)
@@ -114,9 +126,9 @@ class BehaviorEngine:
                 triggered, reasons = detect_sudden_stop(
                     history,
                     kin,
-                    moving_threshold=settings.MOVING_THRESHOLD,
-                    stopped_threshold=settings.STOPPED_THRESHOLD,
-                    decel_threshold=settings.DECELERATION_THRESHOLD,
+                    moving_threshold=settings.MOVING_THRESHOLD * res_scale,
+                    stopped_threshold=settings.STOPPED_THRESHOLD * res_scale,
+                    decel_threshold=settings.DECELERATION_THRESHOLD * res_scale,
                 )
                 if triggered:
                     bev = self._make_event(
@@ -156,7 +168,7 @@ class BehaviorEngine:
                 history = self._track_history.get_history(self.camera_id, ev.track_id)
                 stat, duration, reasons = is_stationary(
                     history,
-                    movement_threshold=settings.STATIONARY_MOVEMENT_THRESHOLD,
+                    movement_threshold=settings.STATIONARY_MOVEMENT_THRESHOLD * res_scale,
                     min_duration=settings.STATIONARY_MIN_DURATION,
                 )
                 if stat:
@@ -188,15 +200,31 @@ class BehaviorEngine:
                     obs_a = self._make_observation(ev_a)
                     obs_b = self._make_observation(ev_b)
 
-                    # Spatial filter: only compare nearby vehicles
+                    iou = compute_iou(ev_a.bbox, ev_b.bbox)
+
+                    # Spatial filter: nearby vehicles, scaled to resolution.
+                    # Overlapping boxes always compare (large vehicles on HD
+                    # footage overlap with centres beyond the base gate).
+                    spatial_gate = max(
+                        _COLLISION_SPATIAL_THRESHOLD,
+                        self._frame_diagonal * _COLLISION_SPATIAL_SCALE,
+                    )
                     dist = compute_center_distance(obs_a, obs_b)
-                    if dist > _COLLISION_SPATIAL_THRESHOLD:
+                    if dist > spatial_gate and iou <= 0.0:
+                        continue
+
+                    # Duplicate suppression: near-identical boxes are one
+                    # object detected twice, not two colliding vehicles.
+                    min_dim = min(
+                        ev_a.bbox.width, ev_a.bbox.height,
+                        ev_b.bbox.width, ev_b.bbox.height,
+                    )
+                    if min_dim > 0 and dist < _COLLISION_DUPLICATE_RATIO * min_dim:
                         continue
 
                     kin_a = track_kinematics.get(ev_a.track_id, KinematicState())
                     kin_b = track_kinematics.get(ev_b.track_id, KinematicState())
 
-                    iou = compute_iou(ev_a.bbox, ev_b.bbox)
                     proximity = compute_proximity_score(
                         obs_a, obs_b, iou, frame_diagonal=self._frame_diagonal
                     )
@@ -266,12 +294,47 @@ class BehaviorEngine:
                         buf.clear()
 
             # ── 8. Crowd stats ────────────────────────────────────────────
+            # Rider/passenger filter: a "person" box that sits inside a
+            # vehicle box is a rider/driver/pillion (two-wheelers) or a
+            # passenger seen through a bus/car window — not a pedestrian.
+            # Without this, dense traffic counts its riders/passengers as a
+            # "crowd" and normal flow trips the anomaly.
             person_events = [ev for ev in events if ev.class_name.lower() == "person"]
-            person_obs = [self._make_observation(ev) for ev in person_events]
+            vehicle_boxes = [ev.bbox for ev in vehicle_events]
+            pedestrian_events: list[DetectionEvent] = []
+            for pev in person_events:
+                pcx = (pev.bbox.x1 + pev.bbox.x2) / 2.0
+                pcy = (pev.bbox.y1 + pev.bbox.y2) / 2.0
+                pw = max(pev.bbox.x2 - pev.bbox.x1, 1e-6)
+                ph = max(pev.bbox.y2 - pev.bbox.y1, 1e-6)
+                p_area = pw * ph
+                inside_vehicle = False
+                for vb in vehicle_boxes:
+                    # (a) centre inside vehicle box (riders, bus passengers).
+                    if (vb.x1 - 5.0 <= pcx <= vb.x2 + 5.0
+                            and vb.y1 - 5.0 <= pcy <= vb.y2 + 5.0):
+                        inside_vehicle = True
+                        break
+                    # (b) large overlap: person box mostly covered by a
+                    # vehicle box (passenger at a bus window whose centre
+                    # falls just outside the bus edge, or a loose rider box).
+                    ix1, iy1 = max(pev.bbox.x1, vb.x1), max(pev.bbox.y1, vb.y1)
+                    ix2, iy2 = min(pev.bbox.x2, vb.x2), min(pev.bbox.y2, vb.y2)
+                    if ix2 > ix1 and iy2 > iy1:
+                        overlap = ((ix2 - ix1) * (iy2 - iy1)) / p_area
+                        if overlap >= 0.3:
+                            inside_vehicle = True
+                            break
+                if not inside_vehicle:
+                    pedestrian_events.append(pev)
+            rider_filtered = len(person_events) - len(pedestrian_events)
+
+            person_obs = [self._make_observation(ev) for ev in pedestrian_events]
             person_kins = [
                 track_kinematics.get(ev.track_id, KinematicState())
-                for ev in person_events
+                for ev in pedestrian_events
             ]
+            vehicle_count = len(vehicle_events)
 
             roi = None
             if settings.CROWD_DENSITY_ROI:
@@ -289,11 +352,8 @@ class BehaviorEngine:
             )
 
             # ── 9. Crowd anomaly detection ────────────────────────────────
-            # Pixel thresholds are calibrated for ~800 px frame diagonals;
-            # scale them for the actual resolution (e.g. 4K footage would
-            # otherwise saturate every speed comparison). Smooth the average
-            # speed first so single-frame track jitter cannot dominate.
-            res_scale = max(self._frame_diagonal / 800.0, 0.5)
+            # res_scale defined in §4. Smooth the average speed first so
+            # single-frame track jitter cannot dominate.
             alpha = settings.VELOCITY_SMOOTHING_ALPHA
             if self._prev_crowd_stats is not None:
                 current_crowd.average_speed = round(
@@ -301,14 +361,19 @@ class BehaviorEngine:
                     + (1.0 - alpha) * self._prev_crowd_stats.average_speed, 4)
             triggered, confidence, reasons = detect_crowd_anomaly(
                 current_crowd, self._prev_crowd_stats,
-                speed_change_threshold=2.0 * res_scale,
+                count_change_threshold=settings.CROWD_COUNT_CHANGE_THRESHOLD,
+                speed_change_threshold=settings.CROWD_SPEED_CHANGE_BASE * res_scale,
+                dispersion_threshold=settings.CROWD_DISPERSION_THRESHOLD,
+                vehicle_count=vehicle_count,
+                min_persons=settings.CROWD_MIN_PERSONS,
+                min_absolute_change=settings.CROWD_COUNT_MIN_ABSOLUTE_CHANGE,
             )
             if triggered:
                 bev = self._make_event(
                     event_type="CROWD_MOVEMENT_ANOMALY",
                     timestamp=frame_timestamp,
-                    track_ids=[ev.track_id for ev in person_events],
-                    class_names=["person"] * len(person_events),
+                    track_ids=[ev.track_id for ev in pedestrian_events],
+                    class_names=["person"] * len(pedestrian_events),
                     score=confidence,
                     confidence=confidence,
                     reasons=reasons,
@@ -316,6 +381,8 @@ class BehaviorEngine:
                         "person_count": current_crowd.person_count,
                         "average_speed": current_crowd.average_speed,
                         "direction_dispersion": current_crowd.direction_dispersion,
+                        "vehicle_count": vehicle_count,
+                        "rider_filtered": rider_filtered,
                     },
                 )
                 behavior_events.append(bev)
@@ -327,7 +394,17 @@ class BehaviorEngine:
             for bev in behavior_events:
                 dedup_key = (bev.event_type, frozenset(bev.track_ids))
                 last_ts = self._dedup.get(dedup_key)
-                if last_ts is None or (frame_timestamp - last_ts) >= settings.COLLISION_EVENT_COOLDOWN:
+                # Sustained overlap must re-emit: a crash keeps two boxes
+                # overlapped for seconds, and the incident verifier needs
+                # repeated evidence. A 5 s cooldown would let a single
+                # collision signal through per clip — too thin to ever
+                # verify. Other signals keep the long cooldown.
+                cooldown = (
+                    settings.COLLISION_REEMIT_SECONDS
+                    if bev.event_type == "POSSIBLE_COLLISION"
+                    else settings.COLLISION_EVENT_COOLDOWN
+                )
+                if last_ts is None or (frame_timestamp - last_ts) >= cooldown:
                     self._dedup[dedup_key] = frame_timestamp
                     deduped.append(bev)
 

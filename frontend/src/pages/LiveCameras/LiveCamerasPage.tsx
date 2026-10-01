@@ -40,6 +40,10 @@ function toFeed(c: Camera): CameraFeed {
 export function LiveCamerasPage() {
   const [area, setArea] = useState<string>(ALL);
   const [areas, setAreas] = useState<{ name: string; count: number }[]>([]);
+  /** Playable feeds per area — the wall only shows cameras with wired
+   *  sample footage, so counts must reflect that same set (not the full
+   *  registry) to stay aligned with the visible cards. */
+  const [wiredCounts, setWiredCounts] = useState<Record<string, number>>({});
   const [feeds, setFeeds] = useState<Camera[]>([]);
   const [detections, setDetections] = useState<Detection[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
@@ -51,6 +55,17 @@ export function LiveCamerasPage() {
 
   useEffect(() => {
     cameraService.areas().then(setAreas).catch(() => undefined);
+    cameraService.list()
+      .then((cams) => {
+        const counts: Record<string, number> = {};
+        cams
+          .filter((c) => FEED_VIDEO[c.id])
+          .forEach((c) => {
+            counts[c.area] = (counts[c.area] ?? 0) + 1;
+          });
+        setWiredCounts(counts);
+      })
+      .catch(() => undefined);
     trackingService.detections().then(setDetections).catch(() => undefined);
     backend.incidents(200).then(setIncidents).catch(() => undefined);
   }, []);
@@ -101,24 +116,15 @@ export function LiveCamerasPage() {
     const active = incidents.find(
       (i) => i.cameraId === c.id && (i.status === 'active' || i.status === 'pending' || i.status === 'monitoring'),
     );
-    const caption = active
-      ? `${active.severity.toUpperCase()} · ${active.title.toUpperCase()}`
-      : `${c.location.toUpperCase()} · ${c.status === 'online' ? 'NOMINAL' : c.status.toUpperCase()}`;
-    const critical = active?.severity === 'critical';
+    const severity = (active?.severity ?? 'nominal') as 'nominal' | 'low' | 'medium' | 'high' | 'critical';
     return (
       <CCTVCard
         key={c.id}
         camera={toFeed(c)}
-      >
-        <p className={`absolute bottom-2 left-2 rounded-md px-1.5 py-0.5 font-data-mono-sm shadow-pop ${critical ? 'bg-error text-on-error' : 'bg-primary/80 text-white backdrop-blur-sm'}`}>
-          {caption}
-        </p>
-        {critical && (
-          <p className="absolute bottom-2 right-2 rounded-md bg-primary/80 px-1.5 py-0.5 font-data-mono-sm text-white backdrop-blur-sm">
-            {c.fps}FPS · LIVE
-          </p>
-        )}
-      </CCTVCard>
+        severity={severity}
+        caption={active ? active.title : `${c.location} · ${c.status === 'online' ? 'All clear' : c.status}`}
+        subCaption={active ? `${active.id} · ${active.severity.toUpperCase()} · needs attention` : `${c.id} · OSD · nominal`}
+      />
     );
   };
 
@@ -162,7 +168,7 @@ export function LiveCamerasPage() {
               : 'border-outline-variant bg-surface-container-lowest text-on-surface-variant hover:border-secondary hover:text-secondary'
           }`}
         >
-          ALL AREAS
+          ALL AREAS · {Object.values(wiredCounts).reduce((n, c) => n + c, 0)}
         </button>
         {areas.map((a) => (
           <button
@@ -176,7 +182,7 @@ export function LiveCamerasPage() {
                 : 'border-outline-variant bg-surface-container-lowest text-on-surface-variant hover:border-secondary hover:text-secondary'
             }`}
           >
-            {a.name.toUpperCase()}{a.count > 0 ? ` · ${a.count}` : ''}
+            {a.name.toUpperCase()} · {wiredCounts[a.name] ?? 0}
           </button>
         ))}
       </div>
@@ -209,7 +215,7 @@ export function LiveCamerasPage() {
             </button>
           </p>
           {matched.length > 0 ? (
-            <div key="search" className="grid grid-cols-1 gap-4 md:grid-cols-2 anim-fade-up">
+            <div key="search" className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 anim-fade-up">
               {matched.map(renderCard)}
             </div>
           ) : (
@@ -220,7 +226,7 @@ export function LiveCamerasPage() {
           )}
         </div>
       ) : (
-        <div key={area} className="grid grid-cols-1 gap-4 md:grid-cols-2 anim-fade-up">
+        <div key={area} className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 anim-fade-up">
           {feeds.map(renderCard)}
         </div>
       )}

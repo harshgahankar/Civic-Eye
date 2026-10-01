@@ -290,6 +290,47 @@ class TestSuddenStop:
         triggered, _ = detect_sudden_stop(history, kin, 3.0, 1.0, 5.0)
         assert triggered is False
 
+    def _crash_history(self) -> list[TrackObservation]:
+        """150 px/s approach for 1 s, then ~1 s of ±1px box jitter."""
+        obs: list[TrackObservation] = []
+        t, cx = 0.0, 0.0
+        for _ in range(10):
+            obs.append(_obs(t, cx))
+            t += 0.1
+            cx += 15.0
+        for i in range(30):
+            wobble = ((i * 37) % 11 - 5) * 0.3
+            obs.append(_obs(t, cx + wobble, frame=i))
+            t += 1.0 / 30.0
+        return obs
+
+    def test_crash_stop_with_jitter_triggered(self) -> None:
+        # Real crash signature: fast approach then jitter around the
+        # impact point. Residual speed (25 px/s of wobble) is far above
+        # the old absolute 1 px/s floor — the relative arms must catch it.
+        history = self._crash_history()
+        kin = KinematicState(speed=25.0, acceleration=-300.0)
+        triggered, reasons = detect_sudden_stop(history, kin, 3.0, 1.0, 5.0)
+        assert triggered is True
+        assert len(reasons) > 0
+
+    def test_oscillation_not_stopped(self) -> None:
+        # Box snapping between two detections: tiny roam range but huge
+        # instantaneous speeds. Range arm alone would call this stopped —
+        # the speed-collapse arm must reject it.
+        obs: list[TrackObservation] = []
+        t, cx = 0.0, 0.0
+        for _ in range(10):
+            obs.append(_obs(t, cx))
+            t += 0.1
+            cx += 15.0
+        for i in range(30):
+            obs.append(_obs(t, cx + (6.0 if i % 2 == 0 else -6.0)))
+            t += 1.0 / 30.0
+        kin = KinematicState(speed=300.0, acceleration=500.0)
+        triggered, _ = detect_sudden_stop(obs, kin, 3.0, 1.0, 5.0)
+        assert triggered is False
+
 
 # ── Test 12–13: Trajectory anomaly ───────────────────────────────────────────
 

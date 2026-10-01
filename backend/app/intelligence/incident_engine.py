@@ -158,6 +158,26 @@ class IncidentEngine:
         self._baggage.prune(timestamp)
         return changed
 
+    def finalize(self, timestamp: float) -> List[IncidentDetail]:
+        """End-of-video: every still-unconfirmed candidate becomes FALSE_ALARM.
+
+        A finished upload produces no more frames, so a DETECTED/VERIFYING
+        candidate can never gather further evidence. Leaving it VERIFYING
+        would flag a clean video as "under review" in the UI even with
+        0 confirmed incidents.
+        """
+        changed: List[IncidentDetail] = []
+        for key, cand in self._candidates.items():
+            inc = cand.incident
+            if inc.status in ("CONFIRMED", "DISPATCHED", "RESOLVED", "FALSE_ALARM"):
+                continue
+            self._set_status(cand, "FALSE_ALARM",
+                             "video ended without confirmation")
+            self.false_alarm_count += 1
+            changed.append(inc)
+        self._baggage.prune(timestamp)
+        return changed
+
     def get_active_incidents(self) -> List[IncidentDetail]:
         return [
             c.incident for c in self._candidates.values()
@@ -288,8 +308,13 @@ class IncidentEngine:
 
         latest_count = int(event.metadata.get("person_count", len(event.track_ids)))
         latest_density = float(event.metadata.get("relative_density", 0.0))
+        try:
+            latest_vehicles = int(event.metadata.get("vehicle_count", 0))
+        except (TypeError, ValueError):
+            latest_vehicles = 0
         assessment = assess_crowd_anomaly(
-            evidence, result.span_seconds, latest_count, latest_density)
+            evidence, result.span_seconds, latest_count, latest_density,
+            latest_vehicles)
         suppression = should_suppress(
             "CROWD_ANOMALY", evidence, result.mean_confidence,
             result.span_seconds)
@@ -301,7 +326,8 @@ class IncidentEngine:
 
         self._confirm(cand, assessment.confidence,
                       {"person_count": latest_count,
-                       "relative_density": latest_density},
+                       "relative_density": latest_density,
+                       "vehicle_count": latest_vehicles},
                       assessment.reasons, event.timestamp)
         self._crowd_verifier.mark_verified(key, event.timestamp)
         return cand.incident

@@ -477,13 +477,17 @@ class PipelineManager:
                                 frame_idx, len(all_events), recent_fps, len(events)
                             )
 
-                # ── Expire stale unconfirmed candidates (→ FALSE_ALARM) ────
+                # ── End of video: nothing unconfirmed survives ──────────────
+                # sweep() expires stale candidates; finalize() closes the rest
+                # so a clean video ends with 0 live candidates (no "under
+                # review" flag when nothing was confirmed).
                 if reader.frame_count > 0:
                     final_ts = reader.frame_count / reader.fps
                 else:
                     final_ts = (reader.frame_number / reader.fps
                                 + settings.INCIDENT_EVIDENCE_WINDOW_SECONDS * 3)
                 _record_incidents(incident_engine.sweep(final_ts))
+                _record_incidents(incident_engine.finalize(final_ts))
 
         except Exception as exc:
             logger.exception("Pipeline [%s] error at frame %d", job_id, reader.frame_number)

@@ -122,20 +122,55 @@ def compute_crowd_stats(
     )
 
 
+def _is_coherent_flow(current: CrowdStats) -> bool:
+    """
+    Laminar traffic flow looks dispersed on paper (two opposite lanes) but
+    is normal. Coherent flow = everyone moving at a similar speed
+    (low coefficient of variation) → not a panic/stampede signature.
+
+    Panic/stampede shows HIGH speed variance (some sprint, some frozen,
+    some falling). Traffic shows LOW variance around a high mean.
+    """
+    if current.person_count < 2 or current.average_speed <= 0:
+        return False
+    variance = max(0.0, current.speed_variance)
+    std = math.sqrt(variance)
+    cv = std / max(current.average_speed, 1e-6)
+    # CV < 0.6 with meaningful motion → lanes moving together, not chaos.
+    return cv < 0.6 and current.average_speed >= 10.0
+
+
 def detect_crowd_anomaly(
     current: CrowdStats,
     previous: Optional[CrowdStats],
-    count_change_threshold: float = 0.3,
-    speed_change_threshold: float = 2.0,
-    dispersion_threshold: float = 0.6,
+    count_change_threshold: float = 0.5,
+    speed_change_threshold: float = 25.0,
+    dispersion_threshold: float = 0.65,
+    vehicle_count: int = 0,
+    min_persons: int = 5,
+    min_absolute_change: int = 3,
 ) -> tuple[bool, float, list[str]]:
     """
     Detect anomalies in crowd movement compared to previous state.
 
+    Traffic-aware: normal vehicle flow (riders counted as persons, two
+    opposite lanes, tracker jitter) must NOT trigger.
+
     Checks:
-    1. Sudden change in person count (>count_change_threshold fraction)
-    2. Sudden change in average speed (>speed_change_threshold px/s)
-    3. High direction dispersion (>dispersion_threshold)
+    1. Sudden change in person count (relative AND absolute change required,
+       so 3→4 flicker in a busy scene does not trigger)
+    2. Sudden change in average speed (absolute AND relative change required,
+       so pixel jitter on fast-moving tracks does not trigger)
+    3. High direction dispersion (suppressed for coherent laminar flow and
+       for vehicle-dominated scenes)
+
+    Parameters
+    ----------
+    vehicle_count : number of vehicle tracks in the same frame. When vehicles
+        dominate the scene it is traffic, not a pedestrian crowd — require a
+        larger, denser pedestrian group before trusting the signal.
+    min_persons   : minimum pedestrian count to consider at all.
+    min_absolute_change : minimum head-count delta for the count-change rule.
 
     Returns
     -------
@@ -145,12 +180,21 @@ def detect_crowd_anomaly(
     triggered = False
     confidence = 0.0
 
-    # Minimum crowd size to trigger anomaly
-    if current.person_count < 3:
+    # ── Minimum crowd size ──────────────────────────────────────────────
+    # In traffic scenes riders (person boxes on motorcycles) inflate the
+    # person count — demand a bigger pedestrian group before trusting it.
+    effective_min = min_persons
+    if vehicle_count > current.person_count and current.person_count < 8:
+        return False, 0.0, reasons
+    if current.person_count < effective_min:
         return False, 0.0, reasons
 
+    coherent = _is_coherent_flow(current)
+
     # ── Direction dispersion ──────────────────────────────────────────────
-    if current.direction_dispersion >= dispersion_threshold:
+    # Suppress for laminar flow: opposite lanes (EAST+WEST) are normal
+    # traffic, not a crowd anomaly. Chaotic scatters keep the trigger.
+    if current.direction_dispersion >= dispersion_threshold and not coherent:
         triggered = True
         conf_contribution = current.direction_dispersion
         confidence = max(confidence, conf_contribution)
@@ -163,7 +207,8 @@ def detect_crowd_anomaly(
     if previous is not None and previous.person_count > 0:
         count_change = abs(current.person_count - previous.person_count)
         relative_change = count_change / previous.person_count
-        if relative_change >= count_change_threshold:
+        if (relative_change >= count_change_threshold
+                and count_change >= min_absolute_change):
             triggered = True
             conf_contribution = min(1.0, relative_change)
             confidence = max(confidence, conf_contribution)
@@ -173,8 +218,13 @@ def detect_crowd_anomaly(
             )
 
         # ── Speed change ──────────────────────────────────────────────────
+        # Require BOTH absolute and relative jumps: tiny pixel jitter on
+        # fast tracks (or small wobble on slow tracks) must not fire.
         speed_delta = abs(current.average_speed - previous.average_speed)
-        if speed_delta >= speed_change_threshold:
+        prev_speed = max(previous.average_speed, 1e-6)
+        relative_speed_change = speed_delta / prev_speed
+        if (speed_delta >= speed_change_threshold
+                and relative_speed_change >= 0.4):
             triggered = True
             conf_contribution = min(1.0, speed_delta / (speed_change_threshold * 5))
             confidence = max(confidence, conf_contribution)

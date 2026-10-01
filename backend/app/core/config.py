@@ -63,7 +63,13 @@ class Settings(BaseSettings):
     COLLISION_MIN_EVIDENCE_FRAMES: int = 3
     COLLISION_CONFIRMATION_WINDOW: float = 2.0
     COLLISION_EVENT_COOLDOWN: float = 5.0
+    COLLISION_REEMIT_SECONDS: float = 1.0  # re-emit sustained overlap
     CROWD_DENSITY_ROI: str = ""           # empty = full frame
+    CROWD_MIN_PERSONS: int = 5            # min pedestrians for crowd signal
+    CROWD_DISPERSION_THRESHOLD: float = 0.65  # direction-chaos bar
+    CROWD_COUNT_CHANGE_THRESHOLD: float = 0.5  # relative head-count jump
+    CROWD_COUNT_MIN_ABSOLUTE_CHANGE: int = 3   # absolute head-count jump
+    CROWD_SPEED_CHANGE_BASE: float = 25.0  # px/s @ ~800px diagonal (scaled)
 
     # ── Incident Intelligence (Step 4) ─────────────────────────────────────
     INCIDENT_EVIDENCE_WINDOW_SECONDS: float = 5.0

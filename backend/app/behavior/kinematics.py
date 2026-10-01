@@ -156,6 +156,8 @@ def detect_sudden_stop(
     moving_threshold: float,
     stopped_threshold: float,
     decel_threshold: float,
+    relative_fraction: float = 0.25,
+    window_seconds: float = 0.6,
 ) -> tuple[bool, list[str]]:
     """
     Detect a sudden stop event for a single track.
@@ -163,7 +165,13 @@ def detect_sudden_stop(
     Requirements:
     - At least 4 observations
     - Was previously moving (any of last-4 instantaneous speeds > moving_threshold)
-    - Currently stopped (smoothed speed < stopped_threshold)
+    - Currently stopped: smoothed speed below BOTH the absolute
+      ``stopped_threshold`` floor AND ``relative_fraction`` of the recent
+      peak speed. The relative arm is what makes this jitter-robust: after
+      a real crash a car doing 200 px/s drops to ~15 px/s of box wobble —
+      never below an absolute 1 px/s floor, but unmistakably stopped
+      relative to its own pre-impact speed. A parked car jiggling at a
+      steady 15 px/s fails the relative arm (15 > 0.25 * 15 peak).
     - Deceleration magnitude > decel_threshold
 
     Returns
@@ -191,8 +199,61 @@ def detect_sudden_stop(
     if not recent_speeds:
         return False, reasons
 
+    peak_recent = max(recent_speeds)
     was_moving = any(s > moving_threshold for s in recent_speeds[:-1] or recent_speeds)
-    is_stopped = kinematics.speed < stopped_threshold
+
+    # ── Range-based stop: compares how far the box roamed in the last
+    # ~0.6 s vs. an older reference window (up to ~3 s back). A crashed car
+    # collapses from tens of pixels of travel to a few pixels of box
+    # jitter; a parked car jitters the same in both windows, so the ratio
+    # rejects it. Speed levels alone cannot do this: 1–2 px of detector
+    # wobble at 30 fps already reads as 30–60 px/s.
+    def _range(obs: list[TrackObservation]) -> float:
+        if len(obs) < 2:
+            return 0.0
+        xs = [o.center_x for o in obs]
+        ys = [o.center_y for o in obs]
+        return math.hypot(max(xs) - min(xs), max(ys) - min(ys))
+
+    t_now = history[-1].timestamp
+    recent_obs = [o for o in history if t_now - o.timestamp <= window_seconds]
+    older_obs = [o for o in history if t_now - o.timestamp > window_seconds]
+    is_stopped = False
+    if len(older_obs) >= 2:
+        ref_range = _range(older_obs)
+        recent_range = _range(recent_obs)
+        # Mean speed over the reference window: an oscillating box (ID
+        # fighting between two detections) roams little but its
+        # instantaneous speeds stay huge — the range arm alone calls that
+        # "stopped". Both arms must agree.
+        older_speeds: list[float] = []
+        for i in range(1, len(history)):
+            prev, curr = history[i - 1], history[i]
+            if curr.timestamp > t_now - window_seconds:
+                continue
+            dt = curr.timestamp - prev.timestamp
+            if dt <= 0.0:
+                continue
+            dx = curr.center_x - prev.center_x
+            dy = curr.center_y - prev.center_y
+            older_speeds.append(math.hypot(dx, dy) / dt)
+        ref_mean_speed = (
+            sum(older_speeds) / len(older_speeds) if older_speeds else 0.0
+        )
+        if ref_range > moving_threshold * window_seconds:
+            was_moving = True
+            range_collapsed = recent_range < max(
+                stopped_threshold * window_seconds, 0.2 * ref_range
+            )
+            speed_collapsed = kinematics.speed < max(
+                stopped_threshold, 0.4 * ref_mean_speed
+            )
+            is_stopped = range_collapsed and speed_collapsed
+    if not is_stopped:
+        # Fallback for short histories: stop level adapts to how fast the
+        # track was going, tolerating residual box jitter after impact.
+        stop_level = max(stopped_threshold, relative_fraction * peak_recent)
+        is_stopped = kinematics.speed < stop_level
     high_decel = abs(kinematics.acceleration) > decel_threshold
 
     if was_moving and is_stopped and high_decel:

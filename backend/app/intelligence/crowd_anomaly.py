@@ -29,13 +29,36 @@ def assess_crowd_anomaly(
     span_seconds: float,
     latest_person_count: int = 0,
     latest_density: float = 0.0,
+    latest_vehicle_count: int = 0,
 ) -> CrowdAnomalyAssessment:
-    """Confirm a crowd anomaly from accumulated CROWD_MOVEMENT_ANOMALY items."""
+    """Confirm a crowd anomaly from accumulated CROWD_MOVEMENT_ANOMALY items.
+
+    Traffic guard: when vehicles dominate the frame (normal road traffic
+    with riders counted as persons), a pedestrian-crowd incident must not
+    confirm — require an actually large pedestrian group instead.
+    """
     anomaly_items = [e for e in evidence if e.type == "CROWD_MOVEMENT_ANOMALY"]
     if len(anomaly_items) < settings.CROWD_ANOMALY_MIN_EVIDENCE:
         return CrowdAnomalyAssessment(
             confirmed=False, confidence=0.0, evidence=evidence,
             reasons=["insufficient persistent crowd-anomaly evidence"],
+        )
+    # Fall back to evidence metadata when the caller did not pass an
+    # explicit vehicle count (older BehaviorEvents lack the field).
+    if latest_vehicle_count <= 0:
+        for item in reversed(anomaly_items):
+            try:
+                latest_vehicle_count = int(item.metadata.get("vehicle_count", 0))
+            except (TypeError, ValueError):
+                latest_vehicle_count = 0
+            if latest_vehicle_count:
+                break
+    if latest_vehicle_count > latest_person_count and latest_person_count < 8:
+        return CrowdAnomalyAssessment(
+            confirmed=False, confidence=0.0, evidence=evidence,
+            reasons=[f"traffic-dominated scene ({latest_vehicle_count} vehicles "
+                     f"vs {latest_person_count} pedestrians): normal flow, "
+                     f"not a pedestrian crowd anomaly"],
         )
     # Frame counts alone are not persistence: at 60 fps, 5 frames = 0.08 s
     # of cold-start tracker jitter. Require a real time span.

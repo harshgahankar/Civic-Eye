@@ -32,16 +32,40 @@ interface StoredUser extends AuthUser {
   password: string;
 }
 
+/** Demo traffic-police login (mock mode only, for demos). */
+const DEMO_USER: StoredUser = {
+  id: 'demo-traffic-police-01',
+  name: 'Demo Traffic Officer',
+  email: 'traffic.police@civiceye.demo',
+  phone: '+91-98200-10001',
+  organization: 'Traffic Police HQ',
+  role: 'Field Officer',
+  authorizedId: 'CIVIC-TP2026',
+  password: 'Traffic@2026',
+};
+
 function loadUsers(): StoredUser[] {
   try {
     const raw = localStorage.getItem(USERS_KEY);
-    if (raw) return JSON.parse(raw) as StoredUser[];
+    if (raw) {
+      const users = JSON.parse(raw) as StoredUser[];
+      // Ensure the demo account exists even for returning browsers.
+      if (!users.some((u) => u.email.toLowerCase() === DEMO_USER.email.toLowerCase())) {
+        users.push(DEMO_USER);
+        try {
+          localStorage.setItem(USERS_KEY, JSON.stringify(users));
+        } catch {
+          /* ignore */
+        }
+      }
+      return users;
+    }
   } catch {
-    /* corrupted store -> start empty below */
+    /* corrupted store -> reseed below */
   }
-  // No seeded accounts: operators register their own login (stored locally
-  // until server-side auth lands). Never ship known passwords.
-  const seed: StoredUser[] = [];
+  // Seed the demo traffic-police login (mock/dev only — server-side auth
+  // must replace this before production and never ship known passwords).
+  const seed: StoredUser[] = [DEMO_USER];
   try {
     localStorage.setItem(USERS_KEY, JSON.stringify(seed));
   } catch {
