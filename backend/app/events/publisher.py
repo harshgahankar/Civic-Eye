@@ -29,16 +29,22 @@ def publish_incident(
 
 
 def publish_incident_detail(
-    bus: EventBus, event_type: str, incident
+    bus: EventBus, event_type: str, incident,
+    extra: dict[str, Any] | None = None,
 ) -> EventEnvelope:
-    """Publish from an IncidentDetail (payload: type/severity/confidence)."""
+    """Publish from an IncidentDetail (payload: type/severity/confidence).
+
+    ``extra`` merges additional routing context (e.g. upload job origin)
+    without touching the incident itself.
+    """
     return publish_incident(
         bus, event_type, incident.incident_id, incident.camera_id,
         {"incident_type": incident.incident_type,
          "severity": incident.severity,
          "confidence": incident.confidence,
          "status": incident.status,
-         "track_ids": list(incident.track_ids)},
+         "track_ids": list(incident.track_ids),
+         **(extra or {})},
     )
 
 

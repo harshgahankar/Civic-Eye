@@ -67,6 +67,31 @@ export interface BackendJob {
   error?: string | null;
 }
 
+export interface JobExplanationCandidate {
+  incident_id: string;
+  incident_type: string;
+  status: string;
+  confidence: number | null;
+  severity: string;
+  track_ids: number[];
+  signal_counts: Record<string, number>;
+  span_seconds: number;
+  peak_overlap: number;
+  peak_jolt: number;
+  reasons: string[];
+}
+
+export interface JobExplanation {
+  job_id: string;
+  job_status: string;
+  frames_processed: number;
+  detections_count: number;
+  behavior_events_count: number;
+  confirmed_incidents_count: number;
+  verdict: string;
+  candidates: JobExplanationCandidate[];
+}
+
 /* ---------- mappers ---------- */
 
 const TYPE_MAP: Record<string, IncidentType> = {
@@ -167,6 +192,42 @@ export const backend = {
   async startJob(videoPath: string, cameraId: string): Promise<{ job_id: string }> {
     return api.post('/processing/video', { video_path: videoPath, camera_id: cameraId });
   },
+  /** Real file upload: sends the bytes + starts a job (no server path needed). */
+  async uploadFile(file: File, cameraId: string): Promise<{ job_id: string }> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    form.append('camera_id', cameraId);
+    // Abort so a wedged server can't glue the UI on STARTING… forever.
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 120_000);
+    try {
+      const res = await fetch(`${API_BASE}/processing/upload`, {
+        method: 'POST',
+        body: form,
+        signal: ctrl.signal,
+      });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => null) as {
+          detail?: { message?: string };
+        } | null;
+        throw new Error(detail?.detail?.message ?? `Upload failed (${res.status})`);
+      }
+      return res.json() as Promise<{ job_id: string }>;
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        throw new Error('Upload timed out after 120s — is the backend still running? Check its terminal.');
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
+  },
+  /** Judge-friendly verdict: why flagged / why not, per-candidate breakdown. */
+  async jobExplanation(id: string): Promise<JobExplanation> {
+    const res = await fetch(`${API_BASE}/processing/${encodeURIComponent(id)}/explanation`);
+    if (!res.ok) throw new Error(`Explanation ${res.status}`);
+    return res.json() as Promise<JobExplanation>;
+  },
   async job(id: string): Promise<BackendJob> {
     return api.get<BackendJob>(`/processing/${encodeURIComponent(id)}`);
   },
@@ -177,6 +238,24 @@ export const backend = {
   /** Durable stream URL for a pipeline output by filename (survives restarts). */
   outputVideoUrl(filename: string): string {
     return `${API_BASE}/processing/videos/${encodeURIComponent(filename.split(/[/\\]/).pop() ?? filename)}`;
+  },
+  /** Filename (if any) embedded in a job's output_path, e.g. "clip_tracked_h264.mp4". */
+  jobOutputFilename(job: Pick<BackendJob, 'output_path'>): string | null {
+    if (!job.output_path) return null;
+    const base = job.output_path.split(/[/\\]/).pop() ?? '';
+    return /\.mp4$/i.test(base) ? base : null;
+  },
+  /** Best preview URL: durable /videos/{filename} when known (survives
+   *  backend restarts), otherwise the volatile /{job_id}/video. */
+  bestJobVideoUrl(job: BackendJob): string {
+    const name = this.jobOutputFilename(job);
+    return name ? this.outputVideoUrl(name) : this.jobVideoUrl(job.job_id);
+  },
+  /** Best download URL — same durable preference, forced as attachment. */
+  bestJobDownloadUrl(job: BackendJob): string {
+    const name = this.jobOutputFilename(job);
+    if (name) return `${this.outputVideoUrl(name)}?download=true`;
+    return this.jobDownloadUrl(job.job_id);
   },
   /** Direct stream URL for the finished job's tracked video (inline preview). */
   jobVideoUrl(id: string): string {

@@ -66,7 +66,7 @@ A `.env` file is optional — sane defaults apply (see `backend/.env.example`).
 
 ## Demo walkthrough
 
-1. **Upload a video** — Live Cameras → Upload (server-side path under `backend/`, e.g. `../data/videos/sample/car1.mp4`) → Start Processing → preview + download the tracked video.
+1. **Upload a video** — Live Cameras → Upload → pick an `.mp4` file (uploads straight to the backend, ≤200 MB) → Start Processing → preview + download the tracked video + "why this verdict" explanation. Advanced fallback: paste a server-side path under `backend/` instead of picking a file.
 2. **Live webcam** — start the backend, then:
    ```powershell
    Invoke-RestMethod -Method Post http://localhost:8000/api/v1/processing/camera/start `
@@ -84,7 +84,7 @@ A `.env` file is optional — sane defaults apply (see `backend/.env.example`).
 | GET/POST | /cameras, /cameras/topology, /cameras/health | Registry, topology, health |
 | GET | /incidents, /incidents/active, /incidents/{id} (+/evidence, /history) | List, detail, evidence |
 | POST | /incidents/{id}/dispatch, /incidents/{id}/resolve | Lifecycle transitions |
-| POST / GET | /processing/video, /processing/{job_id}(/video, /incidents) | File jobs |
+| POST / GET | /processing/video, /processing/upload, /processing/{job_id}(/video, /incidents, /explanation) | File jobs (path or direct upload) + verdict |
 | POST/GET | /processing/camera/start, /stop, /status, /snapshot, /stream | Live webcam |
 | GET | /dashboard/snapshot, /events/recent | Dashboard data |
 | WS | /ws | Live event envelopes (`INCIDENT_CONFIRMED`, …) |

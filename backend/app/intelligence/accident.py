@@ -60,7 +60,7 @@ def assess_accident(
         by_type.setdefault(item.type, []).append(item)
 
     collision_items = by_type.get("POSSIBLE_COLLISION", [])
-    stop_items = by_type.get("SUDDEN_STOP", [])
+    stop_items = by_type.get("SUDDEN_STOP", []) + by_type.get("RAPID_SLOWDOWN", [])
     traj_items = by_type.get("TRAJECTORY_ANOMALY", [])
     still_items = by_type.get("STATIONARY_OBJECT", [])
 
@@ -100,28 +100,43 @@ def assess_accident(
         final += 0.08
     elif distinct == 2:
         final += 0.04
-    # Sustained-impact bonus: boxes that REPEATEDLY overlap (not just pass
-    # near) plus a genuine speed collapse (deceleration / post-impact
-    # stillness) is the signature of a real crash. Passing traffic and
-    # side-by-side convoys (a bus alongside cars for seconds, small
-    # overlaps, jitter trajectory blips, nobody slowing) must NOT earn
-    # this — so trajectory-only corroboration does not qualify. Without
+    # Sustained-impact bonus: boxes that REPEATEDLY come together (not just
+    # pass near) plus a genuine motion change is the signature of a real
+    # crash. Two corroboration paths qualify:
+    #   (a) speed collapse to a stop (deceleration / post-impact stillness),
+    #   (b) kinematic jolt INSIDE the collision signals (hard acceleration
+    #       spike + trajectory swerve) — for impacts where the cars bump
+    #       and keep rolling, so no SUDDEN_STOP/STATIONARY_OBJECT is ever
+    #       emitted (e.g. car3.mp4: 7x collision, speed_change 1.0, no stop).
+    # Passing traffic and side-by-side convoys (small overlaps, jitter
+    # trajectory blips, nobody slowing, no jolt) must NOT earn this — so
+    # trajectory-only corroboration without a jolt does not qualify. Without
     # this bonus, collision-only evidence caps below the confirmation
     # threshold and genuine 2-car impacts never confirm.
     max_overlap = 0.0
+    max_jolt = 0.0
     for item in collision_items:
         try:
             max_overlap = max(max_overlap,
                               float(item.metadata.get("overlap_score", 0.0)))
         except (TypeError, ValueError):
-            continue
+            pass
+        try:
+            max_jolt = max(max_jolt,
+                           float(item.metadata.get("speed_change_score", 0.0)))
+        except (TypeError, ValueError):
+            pass
+    has_stop_corroboration = (deceleration_score > 0.0 or stationary_score > 0.0)
+    # Jolt path needs BOTH a hard kinematic spike and an independent
+    # direction-change signal — either alone is just noisy traffic.
+    has_jolt_corroboration = (max_jolt >= 0.8 and trajectory_score > 0.0)
     sustained_impact = (
-        len(collision_items) >= 4 and max_overlap >= 0.08
+        len(collision_items) >= 3 and max_overlap >= 0.02
         and span_seconds >= 1.0
-        and (deceleration_score > 0.0 or stationary_score > 0.0)
+        and (has_stop_corroboration or has_jolt_corroboration)
     )
     if sustained_impact:
-        final += 0.12
+        final += 0.15
     final = round(min(1.0, max(0.0, final)), 4)
 
     reasons: List[str] = []
@@ -137,7 +152,7 @@ def assess_accident(
         )
     if stop_items:
         reasons.append(
-            f"rapid deceleration to stop observed {len(stop_items)}x"
+            f"rapid deceleration/slowdown observed {len(stop_items)}x"
         )
     if traj_items:
         reasons.append("abnormal trajectory / direction change near impact")

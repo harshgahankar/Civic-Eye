@@ -267,3 +267,61 @@ def detect_sudden_stop(
         return True, reasons
 
     return False, reasons
+
+
+def detect_rapid_slowdown(
+    history: list[TrackObservation],
+    kinematics: KinematicState,
+    moving_threshold: float,
+    decel_threshold: float,
+    slow_fraction: float = 0.4,
+) -> tuple[bool, list[str]]:
+    """Detect a sharp speed collapse that does NOT reach a full stop.
+
+    Bump-and-roll crashes (cars collide then keep rolling) never satisfy
+    ``detect_sudden_stop`` — yet their speed trace shows an unmistakable
+    cliff plus a hard deceleration spike. This detector catches that:
+      - ≥4 observations, was moving (peak recent speed > moving_threshold),
+      - current smoothed speed < slow_fraction of that peak,
+      - |acceleration| > decel_threshold.
+
+    Returns (triggered, reasons).
+    """
+    reasons: list[str] = []
+
+    if len(history) < 4:
+        return False, reasons
+
+    recent = history[-5:]
+    recent_speeds: list[float] = []
+    for i in range(1, len(recent)):
+        prev = recent[i - 1]
+        curr = recent[i]
+        dt = curr.timestamp - prev.timestamp
+        if dt <= 0.0:
+            continue
+        dx = curr.center_x - prev.center_x
+        dy = curr.center_y - prev.center_y
+        recent_speeds.append(math.sqrt(dx * dx + dy * dy) / dt)
+
+    if not recent_speeds:
+        return False, reasons
+
+    peak = max(recent_speeds)
+    if peak <= moving_threshold:
+        return False, reasons
+
+    collapsed = kinematics.speed < slow_fraction * peak
+    high_decel = abs(kinematics.acceleration) > decel_threshold
+
+    if collapsed and high_decel:
+        reasons.append(
+            f"was moving (peak_speed={peak:.1f} px/s), "
+            f"now much slower (speed={kinematics.speed:.1f} px/s)"
+        )
+        reasons.append(
+            f"sharp deceleration: {kinematics.acceleration:.1f} px/s²"
+        )
+        return True, reasons
+
+    return False, reasons

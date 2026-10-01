@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
-import { backend, type BackendIncidentSummary, type BackendJob } from '../../services/backend';
+import { backend, type BackendIncidentSummary, type BackendJob, type JobExplanation } from '../../services/backend';
 import { useUiStore } from '../../store/uiStore';
 
 export interface UploadModalProps {
@@ -10,26 +10,29 @@ export interface UploadModalProps {
 }
 
 /**
- * Upload → processing → preview + download.
+ * Upload → processing → preview + download + explanation.
  *
- * Honest boundaries (backend has no file-upload endpoint):
- * - Upload: the video file must already sit where the backend can read it
- *   (drop it into backend/data/videos/sample, or any server-side path);
- *   the modal starts the job by path and polls it live.
- * - Preview/download: streamed from the finished job via
- *   GET /api/v1/processing/{job_id}/video (backend transcodes outputs to
- *   browser-playable H.264).
+ * Two ways to start a job:
+ * - Pick a file: bytes are POSTed to /processing/upload (no server path
+ *   needed — the judge-friendly path) and the job starts immediately.
+ * - Server path (advanced fallback): the file already sits where the
+ *   backend can read it; the modal starts the job by path and polls it.
+ * Preview/download stream the finished job's H.264 output; the verdict
+ * panel explains why the video flagged (or why not).
  */
 export function UploadModal({ open, onClose }: UploadModalProps) {
   const pushToast = useUiStore((s) => s.pushToast);
   const [fileName, setFileName] = useState('');
   const [fileSize, setFileSize] = useState('');
+  const [fileObj, setFileObj] = useState<File | null>(null);
   const [serverPath, setServerPath] = useState('../data/videos/sample/');
   const [cameraId, setCameraId] = useState('CAM-UPLOAD');
   const [job, setJob] = useState<BackendJob | null>(null);
   const [starting, setStarting] = useState(false);
   const [videoError, setVideoError] = useState('');
+  const [retryCount, setRetryCount] = useState(0);
   const [accidents, setAccidents] = useState<BackendIncidentSummary[]>([]);
+  const [explanation, setExplanation] = useState<JobExplanation | null>(null);
   const alertedFor = useRef<string | null>(null);
 
   const typeLabel = (t: string) =>
@@ -37,6 +40,25 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
     : t === 'UNATTENDED_BAGGAGE' ? 'UNATTENDED BAG'
     : t === 'CROWD_ANOMALY' ? 'CROWD ANOMALY'
     : t.replace(/_/g, ' ');
+
+  /** Short human labels for evidence signal chips (raw enum names wrap badly). */
+  const signalLabel = (t: string) =>
+    t === 'POSSIBLE_COLLISION' ? 'Collision'
+    : t === 'TRAJECTORY_ANOMALY' ? 'Trajectory'
+    : t === 'RAPID_SLOWDOWN' ? 'Slowdown'
+    : t === 'SUDDEN_STOP' ? 'Sudden stop'
+    : t === 'STATIONARY_OBJECT' ? 'Stationary'
+    : t === 'CROWD_MOVEMENT_ANOMALY' ? 'Crowd'
+    : t.toLowerCase().replace(/_/g, ' ');
+
+  const statusChipClass = (s: string) =>
+    s === 'CONFIRMED' || s === 'DISPATCHED'
+      ? 'bg-error/15 text-error'
+      : s === 'FALSE_ALARM'
+        ? 'border border-outline-variant text-on-surface-variant'
+        : 'bg-amber-500/15 text-amber-700';
+
+  const SEVERITY_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
 
   useEffect(() => {
     if (!open) return;
@@ -58,13 +80,13 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
     return () => clearInterval(timer);
   }, [open, job?.job_id, job?.status]);
 
-  // Incident alert: when a job completes, check its incidents once. Only
-  // CONFIRMED / DISPATCHED incidents flag the video — VERIFYING / DETECTED
-  // candidates and FALSE_ALARMs must never flag a clean video. 0 confirmed
-  // means 0 flags.
+  // Incident alert + verdict: when a job completes, fetch confirmed hits
+  // for flagging plus the full explanation (including rejected candidates)
+  // so clean videos show "why not flagged" instead of silence.
   useEffect(() => {
     if (!open || !job || job.status !== 'COMPLETED' || alertedFor.current === job.job_id) return;
     alertedFor.current = job.job_id;
+    backend.jobExplanation(job.job_id).then(setExplanation).catch(() => {});
     backend.jobIncidents(job.job_id)
       .then((rows) => {
         const hits = rows.filter((r) => r.status === 'CONFIRMED' || r.status === 'DISPATCHED');
@@ -85,29 +107,59 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
 
   const pickFile = (f: File | undefined) => {
     if (!f) return;
+    setFileObj(f);
     setFileName(f.name);
     setFileSize(`${(f.size / 1048576).toFixed(1)} MB`);
     setServerPath((p) => (p.endsWith('/') || p === '' ? `${p}${f.name}` : p));
     setJob(null);
     setVideoError('');
+    setRetryCount(0);
     setAccidents([]);
+    setExplanation(null);
   };
 
   const startJob = async () => {
-    if (!serverPath.trim()) {
-      pushToast('Enter the server-side video path first.', 'error');
-      return;
-    }
     setStarting(true);
     setVideoError('');
+    setRetryCount(0);
     setAccidents([]);
+    setExplanation(null);
+    // Never let the button stick on STARTING…: any step hanging >20s
+    // surfaces as an error toast instead of silence.
+    const withTimeout = <T,>(p: Promise<T>, ms: number, label: string): Promise<T> =>
+      Promise.race([
+        p,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`${label} timed out — is the backend still running? Check its terminal.`)), ms),
+        ),
+      ]);
     try {
-      const started = await backend.startJob(serverPath.trim(), cameraId.trim() || 'CAM-UPLOAD');
-      const first = await backend.job(started.job_id);
+      // Preferred: upload the picked bytes (no server path needed).
+      // Fallback: start by server-side path when no file was picked.
+      const started = fileObj
+        ? await backend.uploadFile(fileObj, cameraId.trim() || 'CAM-UPLOAD')
+        : await (async () => {
+            if (!serverPath.trim()) {
+              pushToast('Pick a file or enter the server-side video path.', 'error');
+              throw new Error('no-source');
+            }
+            return withTimeout(
+              backend.startJob(serverPath.trim(), cameraId.trim() || 'CAM-UPLOAD'),
+              20_000,
+              'Start-processing request',
+            );
+          })();
+      const first = await withTimeout(backend.job(started.job_id), 20_000, 'Job-status request');
       setJob(first);
       pushToast(`Job ${started.job_id} started.`, 'success');
-    } catch {
-      pushToast('Could not start job — is the backend running and the path valid?', 'error');
+    } catch (e) {
+      if (e instanceof Error && e.message === 'no-source') {
+        /* toast already shown */
+      } else if (e instanceof Error) {
+        pushToast(e.message, 'error');
+      } else {
+        pushToast('Could not start job — is the backend running?', 'error');
+      }
     } finally {
       setStarting(false);
     }
@@ -115,16 +167,57 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
 
   const done = job?.status === 'COMPLETED';
   const failed = job?.status === 'FAILED';
-  const previewUrl = done && job ? backend.jobVideoUrl(job.job_id) : null;
-  const downloadUrl = done && job ? backend.jobDownloadUrl(job.job_id) : null;
-  const confirmedCount = accidents.length;
+  // Durable /videos/{filename} URL when the job reports an output_path
+  // (survives backend restarts); falls back to the volatile job URL.
+  const basePreviewUrl = done && job ? backend.bestJobVideoUrl(job) : null;
+  const previewUrl = basePreviewUrl
+    ? `${basePreviewUrl}${basePreviewUrl.includes('?') ? '&' : '?'}retry=${retryCount}`
+    : null;
+  const downloadUrl = done && job ? backend.bestJobDownloadUrl(job) : null;
+  const confirmedIds = [...new Set(accidents.map((a) => a.incident_id))];
+  const confirmedCount = confirmedIds.length;
+  const confirmedKinds = [...new Set(accidents.map((a) => typeLabel(a.incident_type)))].join(' · ');
+  const topSeverity = accidents
+    .map((a) => String(a.severity ?? 'low'))
+    .sort((x, y) => (SEVERITY_RANK[y.toLowerCase()] ?? 0) - (SEVERITY_RANK[x.toLowerCase()] ?? 0))[0] ?? 'low';
+
+  const handleVideoError = async () => {
+    // Ask the backend why the stream failed so the message is actionable
+    // (409 = still transcoding → auto-retry; 404 = file gone/restarted).
+    if (basePreviewUrl) {
+      try {
+        const res = await fetch(basePreviewUrl, { method: 'HEAD' });
+        if (res.status === 409 && retryCount < 3) {
+          const wait = (retryCount + 1) * 3000;
+          setVideoError(`Finishing video export… retrying in ${wait / 1000}s (attempt ${retryCount + 1}/3).`);
+          setTimeout(() => {
+            setVideoError('');
+            setRetryCount((n) => n + 1);
+          }, wait);
+          return;
+        }
+        if (res.status === 404) {
+          setVideoError('Output file not found on the server (backend may have restarted). Re-run processing, then use DOWNLOAD.');
+          return;
+        }
+      } catch {
+        /* offline backend — fall through to generic message */
+      }
+    }
+    if (retryCount < 2) {
+      setRetryCount((n) => n + 1);
+      return;
+    }
+    setVideoError('Preview failed to load — this browser cannot play the file yet. Try DOWNLOAD below, or press RETRY. If it persists, the output may still be transcoding to H.264.');
+  };
 
   return createPortal(
-    <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-primary/60 backdrop-blur-sm p-4 anim-fade-up" onClick={onClose} role="dialog" aria-modal="true" aria-label="Upload video">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-primary/60 backdrop-blur-sm p-4 anim-fade-up" onClick={onClose} role="dialog" aria-modal="true" aria-label="Upload video">
       <div
-        className="w-full max-w-[520px] rounded-2xl border border-outline-variant bg-surface-container-lowest p-6 shadow-pop anim-scale-in"
+        className="flex max-h-[calc(100vh-2rem)] w-full max-w-[520px] flex-col overflow-hidden rounded-2xl border border-outline-variant bg-surface-container-lowest shadow-pop anim-scale-in"
         onClick={(e) => e.stopPropagation()}
       >
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
         <h2 className="font-label-caps text-on-surface">UPLOAD VIDEO</h2>
 
         <div className="pt-4">
@@ -134,7 +227,7 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
                 {fileName || 'Choose a video file'}
               </span>
               <span className="block font-data-mono-sm text-on-surface-variant">
-                {fileSize || 'mp4 / avi — must already exist on the server (see below)'}
+                {fileSize || 'mp4 / avi / mov — uploads straight to the backend'}
               </span>
               <input
                 type="file"
@@ -144,12 +237,13 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
               />
             </label>
             <p className="pt-2 font-data-mono-sm text-on-surface-variant">
-              Server path (relative to <span className="font-semibold">backend/</span>) — or copy the file into{' '}
-              <span className="font-semibold">data/videos/sample/</span> first:
+              {fileObj
+                ? 'Ready to upload — or clear the file to use a server path instead.'
+                : 'No file picked — paste a server path instead (advanced, relative to backend/):'}
             </p>
             <input
               value={serverPath}
-              onChange={(e) => { setServerPath(e.target.value); setJob(null); setVideoError(''); setAccidents([]); }}
+              onChange={(e) => { setServerPath(e.target.value); setFileObj(null); setJob(null); setVideoError(''); setRetryCount(0); setAccidents([]); setExplanation(null); }}
               spellCheck={false}
               className="mt-1.5 w-full rounded-xl border border-outline-variant bg-surface-container-low px-3 py-2.5 font-data-mono-md text-on-surface focus:border-secondary focus:outline-none"
             />
@@ -171,7 +265,7 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
             </button>
 
             {job && (
-              <div className="mt-4 rounded-xl border border-outline-variant bg-surface-container-low p-4">
+              <div className="mt-3 rounded-xl border border-outline-variant bg-surface-container-low p-3">
                 <p className="font-data-mono-md text-on-surface">
                   {job.job_id} · <span className="font-semibold">{job.status}</span>
                 </p>
@@ -188,15 +282,61 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
                 {done && previewUrl && downloadUrl && job && (
                   <>
                     {accidents.length > 0 && (
-                      <div role="alert" className="mt-3 flex items-start gap-2 rounded-xl border border-error bg-error/10 px-3 py-2.5">
-                        <span className="material-symbols-outlined text-[20px] text-error">warning</span>
-                        <p className="font-body-sm font-medium text-on-surface">
-                          INCIDENT CONFIRMED — {[...new Set(accidents.map((a) => typeLabel(a.incident_type)))].join(' · ')} · {confirmedCount} confirmed ({accidents.map((a) => a.incident_id).join(', ')}).
-                          This video is flagged and listed in Emergency.
+                      <div role="alert" className="mt-2 rounded-xl border border-error bg-error/10 px-3 py-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="material-symbols-outlined text-[20px] text-error">warning</span>
+                          <p className="font-body-sm font-bold text-on-surface">
+                            {confirmedCount} INCIDENT{confirmedCount === 1 ? '' : 'S'} CONFIRMED — {confirmedKinds}
+                          </p>
+                          <span className="ml-auto rounded-md bg-error px-1.5 py-0.5 font-label-caps text-on-error">
+                            {topSeverity.toUpperCase()}
+                          </span>
+                        </div>
+                        <p className="pt-1 font-data-mono-sm text-on-surface-variant">
+                          {confirmedIds.join(' · ')}
+                        </p>
+                        <p className="pt-0.5 font-body-sm text-on-surface-variant">
+                          Flagged in Emergency — open the dossier below or dispatch from the Emergency queue.
                         </p>
                       </div>
                     )}
-                    <div className="relative mt-3 overflow-hidden rounded-xl bg-primary">
+                    {explanation && (
+                      <div className="mt-2 rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2">
+                        <p className="font-label-caps text-on-surface-variant">WHY THIS VERDICT</p>
+                        <p className="pt-1 font-body-sm text-on-surface">{explanation.verdict}</p>
+                        <ul className="mt-1.5 flex flex-col gap-1.5">
+                          {explanation.candidates.slice(0, 2).map((c) => (
+                            <li key={c.incident_id} className="rounded-lg bg-surface-container-low px-2.5 py-2">
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                <span className="font-data-mono-sm font-bold text-on-surface">{c.incident_id}</span>
+                                <span className="rounded-md bg-secondary/15 px-1.5 py-0.5 font-label-caps text-secondary">
+                                  {typeLabel(c.incident_type)}
+                                </span>
+                                <span className={`rounded-md px-1.5 py-0.5 font-label-caps ${statusChipClass(c.status)}`}>
+                                  {c.status.replace(/_/g, ' ')}
+                                </span>
+                                <span className="ml-auto font-data-mono-sm font-bold text-on-surface">
+                                  {Math.round((c.confidence ?? 0) * 100)}%
+                                </span>
+                              </div>
+                              {Object.keys(c.signal_counts).length > 0 && (
+                                <div className="flex flex-wrap gap-1 pt-1.5">
+                                  {Object.entries(c.signal_counts).map(([sig, n]) => (
+                                    <span key={sig} className="rounded-md border border-outline-variant px-1.5 py-0.5 font-data-mono-sm text-on-surface-variant">
+                                      {signalLabel(sig)} ×{n}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              <p className="pt-1 font-data-mono-sm text-on-surface-variant">
+                                {c.span_seconds}s span · peak IoU {c.peak_overlap} · jolt {c.peak_jolt}
+                              </p>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    <div className="relative mt-2 overflow-hidden rounded-xl bg-primary">
                       {accidents.length > 0 && (
                         <span className="absolute left-2 top-2 z-10 rounded-md bg-error px-1.5 py-0.5 font-data-mono-sm text-on-error">
                           INCIDENT FLAGGED · {job.job_id}
@@ -204,7 +344,7 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
                       )}
                       {!videoError ? (
                         <video
-                          key={job.job_id}
+                          key={`${job.job_id}-${retryCount}`}
                           src={previewUrl}
                           className="aspect-video h-full w-full object-cover"
                           autoPlay
@@ -213,15 +353,25 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
                           playsInline
                           controls
                           preload="metadata"
-                          onError={() => setVideoError('Preview failed to load — the output file may be missing or still being written. Try DOWNLOAD below.')}
+                          onError={handleVideoError}
                         />
                       ) : (
-                        <p className="px-4 py-6 text-center font-body-sm text-error">{videoError}</p>
+                        <div className="px-4 py-6 text-center">
+                          <p className="font-body-sm text-error">{videoError}</p>
+                          <button
+                            type="button"
+                            onClick={() => { setVideoError(''); setRetryCount((n) => n + 1); }}
+                            className="mt-3 rounded-lg border border-outline-variant px-4 py-1.5 font-label-caps text-on-surface hover:border-secondary hover:text-secondary transition"
+                          >
+                            RETRY PREVIEW
+                          </button>
+                        </div>
                       )}
                     </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
                     <a
                       href={downloadUrl}
-                      className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 font-label-caps text-white hover:bg-emerald-700 transition"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 font-label-caps text-white hover:bg-emerald-700 transition"
                     >
                       <span className="material-symbols-outlined text-[16px]">file_download</span>
                       DOWNLOAD TRACKED VIDEO
@@ -230,25 +380,29 @@ export function UploadModal({ open, onClose }: UploadModalProps) {
                       <Link
                         to="/emergency"
                         onClick={() => onClose?.()}
-                        className="mt-3 ml-2 inline-flex items-center gap-1.5 rounded-lg bg-error px-4 py-2 font-label-caps text-on-error hover:bg-red-700 transition"
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-error px-4 py-2 font-label-caps text-on-error hover:bg-red-700 transition"
                       >
                         <span className="material-symbols-outlined text-[16px]">emergency</span>
                         VIEW IN EMERGENCY
                       </Link>
                     )}
+                    </div>
                   </>
                 )}
               </div>
             )}
           </div>
 
+        </div>
+        <div className="border-t border-outline-variant bg-surface-container-lowest px-5 py-3">
         <button
           type="button"
           onClick={onClose}
-          className="mt-4 w-full rounded-lg border border-outline-variant px-4 py-2 font-label-caps text-on-surface-variant hover:border-on-surface-variant transition"
+          className="w-full rounded-lg border border-outline-variant px-4 py-2 font-label-caps text-on-surface-variant hover:border-on-surface-variant transition"
         >
           CLOSE
         </button>
+        </div>
       </div>
     </div>,
     document.body,

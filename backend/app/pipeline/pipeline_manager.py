@@ -349,23 +349,35 @@ class PipelineManager:
                 seen_incidents: set[str] = set()
 
                 def _publish_incident(inc: IncidentDetail) -> None:
-                    """Map an incident change onto bus event types."""
+                    """Map an incident change onto bus event types.
+
+                    File jobs tag every envelope with their upload origin so
+                    the dashboard can hold the flag popup until the video is
+                    fully processed (live camera paths publish untagged and
+                    stay instant).
+                    """
+                    origin = {"origin": "upload", "job_id": job_id}
                     iid = inc.incident_id
                     if inc.status == "CONFIRMED":
                         if iid not in seen_incidents:
                             publish_incident_detail(
-                                bus, event_types.INCIDENT_CREATED, inc)
+                                bus, event_types.INCIDENT_CREATED, inc,
+                                extra=origin)
                         publish_incident_detail(
-                            bus, event_types.INCIDENT_CONFIRMED, inc)
+                            bus, event_types.INCIDENT_CONFIRMED, inc,
+                            extra=origin)
                     elif inc.status == "FALSE_ALARM":
                         publish_incident_detail(
-                            bus, event_types.INCIDENT_FALSE_ALARM, inc)
+                            bus, event_types.INCIDENT_FALSE_ALARM, inc,
+                            extra=origin)
                     elif iid not in seen_incidents:
                         publish_incident_detail(
-                            bus, event_types.INCIDENT_CREATED, inc)
+                            bus, event_types.INCIDENT_CREATED, inc,
+                            extra=origin)
                     else:
                         publish_incident_detail(
-                            bus, event_types.INCIDENT_UPDATED, inc)
+                            bus, event_types.INCIDENT_UPDATED, inc,
+                            extra=origin)
                     seen_incidents.add(iid)
 
                 def _record_incidents(incidents: list[IncidentDetail]) -> None:

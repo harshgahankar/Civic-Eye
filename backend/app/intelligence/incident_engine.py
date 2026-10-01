@@ -52,6 +52,7 @@ logger = get_logger(__name__)
 _ACCIDENT_SIGNAL_TYPES = {
     "POSSIBLE_COLLISION",
     "SUDDEN_STOP",
+    "RAPID_SLOWDOWN",
     "TRAJECTORY_ANOMALY",
     "STATIONARY_OBJECT",
 }
@@ -385,6 +386,33 @@ class IncidentEngine:
     def _accident_key(self, event: BehaviorEvent) -> Tuple[str, str]:
         tids = sorted(event.track_ids)
         if len(tids) >= 2:
+            # Track-ID churn (ByteTrack re-IDs the same physical car
+            # mid-crash: [2,5] → [2,10] → [2,12]) must not split one crash
+            # into 5 thin candidates that can never verify. Attach to a
+            # live candidate sharing ≥1 track when it saw evidence recently
+            # (inside the evidence window); otherwise open a fresh pair key.
+            window = settings.INCIDENT_EVIDENCE_WINDOW_SECONDS
+            best: Optional[str] = None
+            best_shared = 0
+            best_recent = float("inf")
+            for (itype, cid), cand in self._candidates.items():
+                if itype != "ACCIDENT":
+                    continue
+                if cand.incident.status not in (
+                        "DETECTED", "VERIFYING", "CONFIRMED",
+                        "DISPATCHED"):
+                    continue
+                shared = len(set(tids) & set(cand.incident.track_ids))
+                if shared == 0:
+                    continue
+                age = abs(event.timestamp - cand.last_evidence_at)
+                if age > window:
+                    continue
+                if (shared > best_shared
+                        or (shared == best_shared and age < best_recent)):
+                    best, best_shared, best_recent = cid, shared, age
+            if best is not None:
+                return (self.camera_id, best)
             return (self.camera_id, f"acc-{tids[0]}-{tids[1]}")
         if len(tids) == 1:
             # Attach single-track signals to a live candidate with overlap

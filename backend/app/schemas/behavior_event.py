@@ -17,8 +17,9 @@ class BehaviorEvent(BaseModel):
     event_type: str = Field(
         ...,
         description=(
-            "POSSIBLE_COLLISION | SUDDEN_STOP | TRAJECTORY_ANOMALY "
-            "| STATIONARY_OBJECT | CROWD_MOVEMENT_ANOMALY"
+            "POSSIBLE_COLLISION | SUDDEN_STOP | RAPID_SLOWDOWN "
+            "| TRAJECTORY_ANOMALY | STATIONARY_OBJECT "
+            "| CROWD_MOVEMENT_ANOMALY"
         ),
     )
     camera_id: str

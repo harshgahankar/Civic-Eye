@@ -89,6 +89,7 @@ def build_explanation(evidence: List[EvidenceItem]) -> List[str]:
     _DESCRIBE = {
         "POSSIBLE_COLLISION": "vehicle proximity / possible collision signal",
         "SUDDEN_STOP": "rapid deceleration to a stop",
+        "RAPID_SLOWDOWN": "sharp speed collapse without a full stop",
         "TRAJECTORY_ANOMALY": "abnormal trajectory / direction change",
         "STATIONARY_OBJECT": "post-event stationary state",
         "CROWD_MOVEMENT_ANOMALY": "abnormal crowd movement",

@@ -45,6 +45,7 @@ coverage.xml
 # ── AI / data artefacts ───────────────────────────────────────────────────────
 data/videos/outputs/
 data/videos/sample/
+data/videos/uploads/
 data/outputs/
 backend/data/
 *.pt

@@ -140,6 +140,58 @@ class TestProcessingJobStatus:
         assert resp.status_code == 404
 
 
+# ── Repeat-emission dedupe ────────────────────────────────────────────────
+
+class TestRepeatEmissionDedupe:
+    def test_job_incidents_lists_each_incident_once(self, client: TestClient) -> None:
+        """The engine emits one row per status change (VERIFYING, CONFIRMED);
+        the job endpoints must still list each incident exactly once."""
+        import json
+
+        from app.api.processing import _registry
+        from app.db.models import Incident as IncidentRow
+        from app.schemas.tracking import JobStatus
+
+        db = TestSession()
+        try:
+            db.add(IncidentRow(
+                incident_id="INC-DUP1",
+                incident_type="ACCIDENT",
+                status="CONFIRMED",
+                severity="high",
+                confidence=0.66,
+                camera_id="CAM-UPLOAD",
+                track_ids_json=json.dumps([2, 12]),
+                evidence_json=json.dumps([]),
+                reasons_json=json.dumps(["synthetic"]),
+            ))
+            db.commit()
+        finally:
+            db.close()
+
+        jid = "JOB-DUPTEST"
+        _registry[jid] = JobStatus(
+            job_id=jid,
+            camera_id="CAM-UPLOAD",
+            status="COMPLETED",
+            source="dup.mp4",
+            # Same incident recorded twice (VERIFYING + CONFIRMED emissions).
+            incident_ids=["INC-DUP1", "INC-DUP1"],
+        )
+        try:
+            resp = client.get(f"/api/v1/processing/{jid}/incidents")
+            assert resp.status_code == 200
+            rows = resp.json()
+            assert [r["incident_id"] for r in rows] == ["INC-DUP1"]
+
+            expl = client.get(f"/api/v1/processing/{jid}/explanation")
+            assert expl.status_code == 200
+            cands = expl.json()["candidates"]
+            assert [c["incident_id"] for c in cands] == ["INC-DUP1"]
+        finally:
+            _registry.pop(jid, None)
+
+
 # ── Existing Step-1 health check still works ─────────────────────────────────
 
 class TestHealthStillWorks:

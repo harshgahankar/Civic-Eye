@@ -1,110 +1,78 @@
 # Civic-Eye Backend
 
-Real-Time Computer Vision for Public Safety — Phase 1: Backend Foundation.
+Real-Time Computer Vision for Public Safety — FastAPI + YOLO11 + ByteTrack.
 
-## Architecture
+## What it does
 
 ```
-civic-eye/
-├── backend/
-│   ├── app/
-│   │   ├── api/          # FastAPI route handlers
-│   │   ├── core/         # Config + logging
-│   │   ├── db/           # SQLAlchemy engine, models
-│   │   ├── schemas/      # Pydantic request/response schemas
-│   │   ├── ai/           # AI/CV modules (Phase 2)
-│   │   ├── pipeline/     # Video ingestion pipeline (Phase 2)
-│   │   ├── services/     # Business logic services (Phase 2)
-│   │   └── main.py       # FastAPI application entry point
-│   ├── tests/
-│   ├── requirements.txt
-│   ├── .env.example
-│   └── pytest.ini
-├── data/
-│   ├── videos/           # Input CCTV footage
-│   ├── models/           # AI model weights
-│   └── outputs/          # Detection outputs
-└── logs/
+VideoReader → FrameProcessor (class filter, track-age gating)
+  → BehaviorEngine (sudden-stop, rapid-slowdown, trajectory, stationary,
+                    collision, crowd)
+  → IncidentEngine (temporal verify → assess → suppress → confirm)
+  → annotated H.264 video + events/behavior/incidents JSONL + SQLite rows
+  → EventBus → WebSocket → dashboard
 ```
+
+Incident types: `ACCIDENT` (collision + speed collapse/slowdown/jolt-swerve),
+`UNATTENDED_BAGGAGE` (stationary bag, owner away), `CROWD_ANOMALY`.
+Lifecycle: `DETECTED → VERIFYING → CONFIRMED → DISPATCHED → RESOLVED`
+(`VERIFYING → FALSE_ALARM` on expiry / end-of-video). Confidence is a
+deterministic [0, 1] score blend — never a calibrated probability.
 
 ## Setup
 
-### 1. Create and activate a virtual environment
-
-**Windows:**
 ```powershell
 python -m venv .venv
-.venv\Scripts\activate
+.\.venv\Scripts\activate
+pip install -r backend/requirements.txt  # run from the repo root
+# optional: Copy-Item backend/.env.example backend/.env
 ```
 
-**macOS/Linux:**
-```bash
-python -m venv .venv
-source .venv/bin/activate
-```
+## Running
 
-### 2. Install dependencies
-
-```bash
-pip install -r backend/requirements.txt
-```
-
-### 3. Configure environment (optional)
-
-```bash
-cp backend/.env.example backend/.env
-# Edit backend/.env as needed
-```
-
-The application works without a `.env` file — defaults are used.
-
-## Running the Backend
-
-```bash
+```powershell
 cd backend
 uvicorn app.main:app --reload
 ```
 
-The API will be available at `http://localhost:8000`.
+API at `http://localhost:8000` — docs at `/docs`, health at
+`/api/v1/health`. No `.env` needed; defaults live in
+`app/core/config.py`.
 
-## API Documentation
-
-| URL | Description |
-|-----|-------------|
-| http://localhost:8000/docs | Swagger UI (interactive) |
-| http://localhost:8000/redoc | ReDoc documentation |
-| http://localhost:8000/openapi.json | OpenAPI schema |
-
-## Available Endpoints
+## Key endpoints (`/api/v1`)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | /api/v1/health | Liveness probe |
-| GET | /api/v1/health/db | Database connectivity probe |
-| GET | /api/v1/cameras | List all cameras |
-| POST | /api/v1/cameras | Register a new camera |
-| GET | /api/v1/cameras/{camera_id} | Get camera by ID |
-| DELETE | /api/v1/cameras/{camera_id} | Delete a camera |
-| GET | /api/v1/incidents | List incidents |
-| GET | /api/v1/analytics/summary | System summary counts |
+| POST | /processing/video | Start job from a server-side video path |
+| POST | /processing/upload | Upload a video file (≤200 MB) + start a job |
+| GET | /processing/{job_id} | Job status (poll while RUNNING) |
+| GET | /processing/{job_id}/video | Tracked MP4 preview (H.264, `?download=true` to save) |
+| GET | /processing/videos/{filename} | Durable video URL (survives restarts) |
+| GET | /processing/{job_id}/incidents | CONFIRMED/DISPATCHED hits for a job |
+| GET | /processing/{job_id}/explanation | Verdict + per-candidate evidence (why flagged / why not) |
+| POST/GET | /processing/camera/start, /stop, /status, /snapshot, /stream | Live webcam/RTSP |
+| GET | /incidents, /incidents/active, /incidents/{id}(/evidence, /history) | Incidents |
+| POST | /incidents/{id}/dispatch, /incidents/{id}/resolve | Lifecycle (409 on invalid transition) |
+| GET | /dashboard/snapshot, /events/recent | Dashboard data |
+| WS | /ws | Live envelopes (`INCIDENT_CONFIRMED`, …) |
 
-## Running Tests
+## Testing
 
-```bash
+```powershell
 cd backend
-pytest
+pytest            # 280+ tests incl. car3 crash regression
+pytest tests/intelligence/test_car3_regression.py -q
 ```
 
-Run with verbose output:
-```bash
-pytest -v
-```
+`test_car3_regression.py` locks the real-car3 evidence shape (repeated
+collision + kinematic jolt + trajectory swerve over ~3 s must CONFIRM;
+overlap + swerve with no jolt must still reject).
 
-## Phase 2 — What's Next
+## Notes
 
-- Integrate YOLOv8 / detection pipeline in `app/ai/`
-- Video frame ingestion in `app/pipeline/`
-- Incident aggregation logic in `app/services/`
-- WebSocket endpoint for real-time event streaming
-- Alert dispatch (email / webhook)
-- Switch SQLite → PostgreSQL for production
+- Outputs go to `data/videos/outputs/` (gitignored); uploads land in
+  `data/videos/uploads/` (gitignored, 200 MB cap, `.mp4/.avi/.mov/.mkv`).
+- OpenCV writes `mp4v`, which browsers can't play — the pipeline
+  transcodes to H.264 via `imageio-ffmpeg` (see `requirements.txt`).
+- In-memory job registry: job status is lost on restart, but
+  `/processing/videos/{filename}` URLs and SQLite incidents survive.

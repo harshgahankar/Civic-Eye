@@ -18,7 +18,11 @@ from app.schemas.behavior_event import BehaviorEvent
 from app.schemas.detection import BBoxModel, DetectionEvent
 
 from app.behavior.track_history import TrackHistory
-from app.behavior.kinematics import compute_kinematics, detect_sudden_stop
+from app.behavior.kinematics import (
+    compute_kinematics,
+    detect_rapid_slowdown,
+    detect_sudden_stop,
+)
 from app.behavior.trajectory import detect_trajectory_anomaly
 from app.behavior.stationary import is_stationary
 from app.behavior.collision import (
@@ -140,6 +144,28 @@ class BehaviorEngine:
                         confidence=0.75,
                         reasons=reasons,
                         metadata={"speed": kin.speed, "acceleration": kin.acceleration},
+                    )
+                    behavior_events.append(bev)
+                    continue
+                # Bump-and-roll: sharp slowdown without a full stop.
+                slow_triggered, slow_reasons = detect_rapid_slowdown(
+                    history,
+                    kin,
+                    moving_threshold=settings.MOVING_THRESHOLD * res_scale,
+                    decel_threshold=settings.DECELERATION_THRESHOLD * res_scale,
+                )
+                if slow_triggered:
+                    bev = self._make_event(
+                        event_type="RAPID_SLOWDOWN",
+                        timestamp=frame_timestamp,
+                        track_ids=[ev.track_id],
+                        class_names=[ev.class_name],
+                        score=min(1.0, abs(kin.acceleration)
+                                  / max(settings.DECELERATION_THRESHOLD, 0.1)),
+                        confidence=0.7,
+                        reasons=slow_reasons,
+                        metadata={"speed": kin.speed,
+                                  "acceleration": kin.acceleration},
                     )
                     behavior_events.append(bev)
 
