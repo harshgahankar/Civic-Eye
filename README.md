@@ -2,11 +2,11 @@
 
 **Real-time computer vision for public safety.** Watches CCTV feeds and shouts only when something genuinely needs a human — traffic accidents, unattended baggage, crowd anomalies — with severity, evidence, and a recommended response attached.
 
-## Demo — tracked output (`car1_tracked.mp4`)
+## Demo — tracked output (`car3_tracked.mp4`)
 
-[![Civic-Eye tracked demo — click to play](docs/demo/car1_thumb.jpg)](docs/demo/car1_tracked.mp4)
+[![Civic-Eye tracked demo — click for full video](docs/demo/car3_demo.gif)](docs/demo/car3_tracked.mp4)
 
-*Click the thumbnail to play the annotated video (YOLO + ByteTrack boxes with per-track confidence).*
+*Live preview above (YOLO + ByteTrack boxes with per-track confidence) — click it for the full annotated video.*
 
 ## Features
 
