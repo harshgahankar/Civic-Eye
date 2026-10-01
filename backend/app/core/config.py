@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     AI_FRAME_SKIP: int = 0           # process every N+1 frames (0 = every frame)
     TRACKER_CONFIG: str = "bytetrack.yaml"
     MAX_FPS: float = 15.0
+    # ── Live camera stream (webcam) ───────────────────────────────────────
+    LIVE_CAMERA_FPS: float = 10.0  # analyzed frames/sec (rest are dropped)
+    LIVE_JPEG_QUALITY: int = 80    # MJPEG preview quality 1–100
     # ── Perception filtering (anti-ghost) ─────────────────────────────────
     AI_ALLOWED_CLASSES: str = ""     # comma-separated, e.g. "person,car,..."
                                      # empty = allow every YOLO class

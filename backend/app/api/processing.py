@@ -20,6 +20,7 @@ from typing import Dict, List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse, Response
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.incidents import IncidentSummary, _to_summary
@@ -332,3 +333,111 @@ def delete_job(job_id: str) -> Response:
     with _registry_lock:
         del _registry[job_id]
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ── Live camera stream (laptop webcam / RTSP) ─────────────────────────────
+
+class StartStreamRequest(BaseModel):
+    camera_id: str = Field("CAM-LIVE", min_length=1, max_length=64)
+    source: int | str = Field(
+        0, description="Webcam index (0 = default laptop camera), "
+                       "RTSP/HTTP URL, or video file path (for testing)")
+    fps: float | None = Field(
+        None, ge=1.0, le=30.0,
+        description="Analyzed frames/sec; stale frames are dropped. "
+                    "Defaults to LIVE_CAMERA_FPS.")
+
+
+def _camera_stream():
+    from app.pipeline.camera_stream import get_camera_stream
+    return get_camera_stream()
+
+
+@router.post(
+    "/camera/start",
+    summary="Start live detection on a camera source",
+)
+def start_camera_stream(payload: StartStreamRequest) -> dict:
+    """Open a webcam/RTSP source and run the detection pipeline live."""
+    from app.pipeline.camera_stream import CameraStreamError
+    try:
+        return _camera_stream().start(
+            camera_id=payload.camera_id,
+            source=payload.source,
+            fps=payload.fps,
+        )
+    except CameraStreamError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT
+            if "already running" in str(exc)
+            else status.HTTP_400_BAD_REQUEST,
+            detail={"error": "CAMERA_STREAM_ERROR", "message": str(exc)},
+        )
+
+
+@router.post(
+    "/camera/stop",
+    summary="Stop the live camera stream",
+)
+def stop_camera_stream() -> dict:
+    """Stop the worker (unconfirmed candidates close as FALSE_ALARM)."""
+    return _camera_stream().stop()
+
+
+@router.get(
+    "/camera/status",
+    summary="Live camera stream status + counters",
+)
+def camera_stream_status() -> dict:
+    """Frames/detections/confirmed counts and current fps."""
+    return _camera_stream().get_status()
+
+
+@router.get(
+    "/camera/snapshot",
+    summary="Latest annotated live frame (JPEG)",
+)
+def camera_stream_snapshot() -> Response:
+    """Single JPEG of the most recent analyzed frame."""
+    jpeg = _camera_stream().get_snapshot()
+    if jpeg is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "NO_FRAME_YET",
+                    "message": "Stream has not produced a frame yet"},
+        )
+    return Response(content=jpeg, media_type="image/jpeg")
+
+
+@router.get(
+    "/camera/stream",
+    summary="Live annotated MJPEG preview (open in a browser)",
+)
+def camera_stream_mjpeg():
+    """Multipart MJPEG of annotated frames. View at this URL directly."""
+    from fastapi.responses import StreamingResponse
+
+    stream = _camera_stream()
+
+    def _frames():
+        import time as _time
+        idle = 0
+        while True:
+            jpeg = stream.get_snapshot()
+            if jpeg is None:
+                if not stream.get_status()["running"]:
+                    break
+                idle += 1
+                if idle > 150:  # ~30 s with no frames → end
+                    break
+                _time.sleep(0.2)
+                continue
+            idle = 0
+            yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
+                   + jpeg + b"\r\n")
+            _time.sleep(0.1)
+
+    return StreamingResponse(
+        _frames(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+    )

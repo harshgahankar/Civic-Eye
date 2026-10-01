@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import Toaster from '../common/Toaster';
+import LiveAlertPopups from '../common/LiveAlertPopups';
 
 export default function AppLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -25,6 +26,7 @@ export default function AppLayout() {
         </main>
       </div>
       <Toaster />
+      <LiveAlertPopups />
     </div>
   );
 }
