@@ -128,3 +128,7 @@ Civic-Eye/
 ├── docs/demo/         # demo video + thumbnail (tracked output sample)
 └── data/videos/sample/# local-only sample footage (gitignored, never pushed)
 ```
+
+## 📄 License
+
+Built for AETHER HackConquest Hackathon 2026.
